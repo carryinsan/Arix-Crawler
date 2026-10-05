@@ -1,12 +1,9 @@
 [package]
 name = "arix-web-intelligence"
 version = "1.0.0"
-edition = "2024"
+edition = "2026"
 autobins = false
 
-[[bin]]
-name = "main"
-path = "src/main.rs"
 
 [[bin]]
 name = "crawler"
