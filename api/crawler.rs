@@ -8,7 +8,7 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use tokio::net::lookup_host;
 use url::Url;
-use vercel_runtime::{run, service_fn, Error, Request, Response, ResponseBody, Body};
+use vercel_runtime::{run, service_fn, Error, Request, Response, ResponseBody};
 
 const MAX_REDIRECTS: usize = 5;
 const MAX_BYTES: usize = 12 * 1024 * 1024;
@@ -65,7 +65,7 @@ async fn main() -> Result<(), Error> {
     run(service_fn(handler)).await
 }
 
-async fn handler(req: Request) -> Result<Response<Body>, Error> {
+async fn handler(req: Request) -> Result<Response<ResponseBody>, Error> {
     let started = Instant::now();
     if req.method() != http::Method::POST {
         return json_response(405, &serde_json::json!({"ok":false,"error":{"code":"METHOD_NOT_ALLOWED"}}));
@@ -120,9 +120,7 @@ async fn crawl(raw: &str, max_text: usize) -> Result<CrawlResponse> {
 
     let mut visited = HashSet::new();
     let mut redirect_count = 0;
-    let mut response = None;
-
-    loop {
+    let response = loop {
         if !visited.insert(target.url.to_string()) { return Err(anyhow!("REDIRECT_LOOP")); }
         let dns = Instant::now();
         target = validate_target(target.url.as_str()).await?;
@@ -144,11 +142,8 @@ async fn crawl(raw: &str, max_text: usize) -> Result<CrawlResponse> {
             redirect_count += 1;
             continue;
         }
-        response = Some(r);
-        break;
-    }
-
-    let response = response.ok_or_else(|| anyhow!("NO_RESPONSE"))?;
+        break r;
+};
     let status = response.status();
     let final_url = target.url.to_string();
     let ctype = response.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
