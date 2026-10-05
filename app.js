@@ -1,114 +1,149 @@
-const $ = (id) => document.getElementById(id);
-const url = $('url'),
-  crawl = $('crawl'),
-  result = $('result'),
-  error = $('error');
+const $ = function (id) {
+  return document.getElementById(id);
+};
 
-function setStatus(t, busy = false) {
-  $('statusText').textContent = t;
-  $('crawl').disabled = busy;
+const urlInput = $('url');
+const crawlBtn = $('crawl');
+const resultBox = $('result');
+const errorBox = $('error');
+
+function setStatus(text, busy) {
+  if (busy === undefined) busy = false;
+  const statusEl = $('statusText');
+  if (statusEl) statusEl.textContent = text;
+  if (crawlBtn) crawlBtn.disabled = busy;
   const dot = document.querySelector('.status i');
   if (dot) dot.style.background = busy ? '#ffd166' : '#63e6a5';
 }
 
-function ms(v) {
-  return typeof v === 'number' ? `${v} ms` : '';
+function formatMs(val) {
+  return typeof val === 'number' ? val + ' ms' : '';
 }
 
-function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[c]));
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function fail(msg) {
-  error.innerHTML = `<b>Could not safely extract this page.</b><div>${esc(msg)}</div>`;
-  error.classList.remove('hidden');
-  result.classList.add('hidden');
+function showError(msg) {
+  errorBox.innerHTML = '<b>Could not safely extract this page.</b><div>' + escapeHtml(msg) + '</div>';
+  errorBox.classList.remove('hidden');
+  resultBox.classList.add('hidden');
 }
 
 async function run() {
-  error.classList.add('hidden');
-  result.classList.add('hidden');
-  $('latency').textContent = '...';
+  errorBox.classList.add('hidden');
+  resultBox.classList.add('hidden');
+  
+  const latencyEl = $('latency');
+  if (latencyEl) latencyEl.textContent = '...';
+  
   setStatus('FETCHING', true);
-  const started = performance.now();
-  const timer = setInterval(() => {
-    $('latency').textContent = ms(Math.round(performance.now() - started));
+  const startTime = performance.now();
+  const timer = setInterval(function () {
+    if (latencyEl) {
+      latencyEl.textContent = formatMs(Math.round(performance.now() - startTime));
+    }
   }, 50);
 
-  let u = url.value.trim();
-  if (!/^https?:\/\//i.test(u)) {
-    u = 'https://' + u;
-    url.value = u;
+  let targetUrl = (urlInput.value || '').trim();
+  if (!/^https?:\/\//i.test(targetUrl)) {
+    targetUrl = 'https://' + targetUrl;
+    urlInput.value = targetUrl;
   }
 
   try {
-    const r = await fetch('/api/crawler', {
+    const response = await fetch('/api/crawler', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url: u })
+      body: JSON.stringify({ url: targetUrl })
     });
-    const d = await r.json();
-    $('latency').textContent = ms(Math.round(performance.now() - started));
+    const data = await response.json();
+    
+    if (latencyEl) {
+      latencyEl.textContent = formatMs(Math.round(performance.now() - startTime));
+    }
 
-    if (!d.ok) {
+    if (!data.ok) {
       setStatus('BLOCKED / FAILED');
-      $('fetchMs').textContent = '-';$('parseMs').textContent = '-';
-      $('quality').textContent = '-';$('method').textContent = '-';
-      fail(d.error?.message || 'Unknown crawler failure');
+      if ($('fetchMs')) $('fetchMs').textContent = '-';
+      if ($('parseMs')) $('parseMs').textContent = '-';
+      if ($('quality')) $('quality').textContent = '-';
+      if ($('method')) $('method').textContent = '-';
+      showError((data.error && data.error.message) || 'Unknown crawler failure');
       return;
     }
 
     setStatus('COMPLETE');
-    $('fetchMs').textContent = ms(d.stages?.fetch_ms);
-    $('parseMs').textContent = ms((d.stages?.parse_ms || 0) + (d.stages?.extraction_ms || 0));
-    $('quality').textContent = `${d.quality}/100`;
-    $('method').textContent = d.method;
-    $('title').textContent = d.title \vert{}\vert{} 'Untitled page';$('qualityBig').textContent = d.quality;
+    if ($('fetchMs')) $('fetchMs').textContent = formatMs(data.stages && data.stages.fetch_ms);
+    if ($('parseMs')) {
+      const p = (data.stages && data.stages.parse_ms) || 0;
+      const e = (data.stages && data.stages.extraction_ms) || 0;
+      $('parseMs').textContent = formatMs(p + e);
+    }
+    if ($('quality')) $('quality').textContent = data.quality + '/100';
+    if ($('method')) $('method').textContent = data.method || '';
+    if ($('title')) $('title').textContent = data.title || 'Untitled page';
+    if ($('qualityBig')) $('qualityBig').textContent = data.quality;
 
-    const a = $('finalUrl');
-    a.href = d.final_url || u;
-    a.textContent = d.final_url || u;
+    const link = $('finalUrl');
+    if (link) {
+      link.href = data.final_url || targetUrl;
+      link.textContent = data.final_url || targetUrl;
+    }
 
-    $('meta').innerHTML = [
-      d.word_count && `${d.word_count.toLocaleString()} words`,
-      d.language && d.language,
-      d.content_type && d.content_type,
-      ...(d.warnings || [])
-    ]
-      .filter(Boolean)
-      .map((x) => `<span>${esc(x)}</span>`)
-      .join('');
+    const metaItems = [];
+    if (data.word_count) metaItems.push(data.word_count.toLocaleString() + ' words');
+    if (data.language) metaItems.push(data.language);
+    if (data.content_type) metaItems.push(data.content_type);
+    if (Array.isArray(data.warnings)) {
+      for (let i = 0; i < data.warnings.length; i++) {
+        metaItems.push(data.warnings[i]);
+      }
+    }
 
-    $('content').textContent = d.text \vert{}\vert{} '';$('trace').textContent = JSON.stringify(
-      {
-        quality: d.quality,
-        method: d.method,
-        latency_ms: d.latency_ms,
-        stages: d.stages,
-        warnings: d.warnings,
-        final_url: d.final_url
-      },
-      null,
-      2
-    );
-    result.classList.remove('hidden');
-  } catch (e) {
-    $('latency').textContent = ms(Math.round(performance.now() - started));
+    const metaContainer = $('meta');
+    if (metaContainer) {
+      let metaHtml = '';
+      for (let i = 0; i < metaItems.length; i++) {
+        metaHtml += '<span>' + escapeHtml(metaItems[i]) + '</span>';
+      }
+      metaContainer.innerHTML = metaHtml;
+    }
+
+    if ($('content')) $('content').textContent = data.text || '';
+    if ($('trace')) {
+      $('trace').textContent = JSON.stringify(
+        {
+          quality: data.quality,
+          method: data.method,
+          latency_ms: data.latency_ms,
+          stages: data.stages,
+          warnings: data.warnings,
+          final_url: data.final_url
+        },
+        null,
+        2
+      );
+    }
+    resultBox.classList.remove('hidden');
+  } catch (err) {
+    if (latencyEl) {
+      latencyEl.textContent = formatMs(Math.round(performance.now() - startTime));
+    }
     setStatus('ERROR');
-    fail(e.message || 'Network error');
+    showError(err.message || 'Network error');
   } finally {
     clearInterval(timer);
-    crawl.disabled = false;
+    if (crawlBtn) crawlBtn.disabled = false;
   }
 }
 
-crawl.addEventListener('click', run);
-url.addEventListener('keydown', (e) => {
+crawlBtn.addEventListener('click', run);
+urlInput.addEventListener('keydown', function (e) {
   if (e.key === 'Enter') run();
 });
