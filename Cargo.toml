@@ -2,12 +2,7 @@
 name = "arix-web-intelligence"
 version = "1.0.0"
 edition = "2024"
-autobins = false
 
-
-[[bin]]
-name = "crawler"
-path = "api/crawler.rs"
 
 [dependencies]
 futures-util = "0.3"
