@@ -67,8 +67,16 @@ async fn main() -> Result<(), Error> {
 
 async fn handler(req: Request) -> Result<Response<ResponseBody>, Error> {
     let started = Instant::now();
+    if req.method() == http::Method::OPTIONS {
+        return Ok(Response::builder()
+            .status(http::StatusCode::NO_CONTENT)
+            .header("access-control-allow-origin", "*")
+            .header("access-control-allow-methods", "POST, OPTIONS")
+            .header("access-control-allow-headers", "content-type")
+            .body(ResponseBody::empty())?);
+    }
     if req.method() != http::Method::POST {
-        return json_response(405, &serde_json::json!({"ok":false,"error":{"code":"METHOD_NOT_ALLOWED"}}));
+        return json_response(405, &serde_json::json!({"ok": false, "error": {"code": "METHOD_NOT_ALLOWED"}}));
     }
     let body = match req.into_body().collect().await {
         Ok(collected) => collected.to_bytes(),
@@ -104,6 +112,7 @@ fn json_response<T: Serialize>(status: u16, value: &T) -> Result<Response<Respon
     let bytes = serde_json::to_vec(value)?;
     Ok(Response::builder()
         .status(status)
+        .header("access-control-allow-origin", "*")
         .header("content-type", "application/json; charset=utf-8")
         .header("cache-control", "no-store")
         .header("x-content-type-options", "nosniff")
