@@ -8,7 +8,7 @@ use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use tokio::net::lookup_host;
 use url::Url;
-use vercel_runtime::{run, service_fn, Error, Request, Response, ResponseBody};
+use vercel_runtime::{run, service_fn, Error, Request, Response, ResponseBody, Body};
 
 const MAX_REDIRECTS: usize = 5;
 const MAX_BYTES: usize = 12 * 1024 * 1024;
@@ -262,7 +262,7 @@ fn is_public_ip(ip: IpAddr) -> bool {
 fn extract_content(doc: &Html, max_text: usize) -> (Option<String>, Option<String>, Option<String>, String, u8, Vec<String>) {
     let mut warnings = Vec::new();
     let title = Selector::parse("title").ok().and_then(|s| doc.select(&s).next()).map(|n| clean(n.text().collect::<Vec<_>>().join(" "))).filter(|x| !x.is_empty());
-    let description = Selector::parse("meta[name='description'], meta[property='og:description']").ok().and_then(|s| doc.select(&s).next()).and_then(|n| n.value().attr("content")).map(clean).filter(|x| !x.is_empty());
+    let description = Selector::parse("meta[name='description'], meta[property='og:description']").ok().and_then(|s| doc.select(&s).next()).and_then(|n| n.value().attr("content")).map(|s| clean(s.to_string())).filter(|x| !x.is_empty());
     let language = Selector::parse("html").ok().and_then(|s| doc.select(&s).next()).and_then(|n| n.value().attr("lang")).map(|s| s.to_string());
 
     let selectors = [
