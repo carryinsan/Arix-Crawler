@@ -1,0 +1,43 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark light">
+  <title>ArixAI Web Intelligence</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div><div class="eyebrow">ARIXAI · WEB INTELLIGENCE</div><h1>Extract the signal.<br><span>Ignore the noise.</span></h1></div>
+      <div class="status"><i></i><span id="statusText">READY</span></div>
+    </header>
+
+    <section class="card hero">
+      <label for="url">PUBLIC WEBPAGE</label>
+      <div class="inputRow"><input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/article"><button id="crawl">Crawl</button></div>
+      <div class="hint">Static-first · no page JavaScript execution · redirect validation · SSRF guard · adaptive extraction</div>
+    </section>
+
+    <section class="telemetry" aria-live="polite">
+      <div><small>TOTAL</small><strong id="latency">—</strong></div>
+      <div><small>FETCH</small><strong id="fetchMs">—</strong></div>
+      <div><small>PARSE</small><strong id="parseMs">—</strong></div>
+      <div><small>QUALITY</small><strong id="quality">—</strong></div>
+      <div><small>METHOD</small><strong id="method">—</strong></div>
+    </section>
+
+    <section id="error" class="card error hidden"></section>
+
+    <section id="result" class="result hidden">
+      <div class="resultHead"><div><div class="eyebrow">VERIFIED EXTRACTION</div><h2 id="title">—</h2><a id="finalUrl" target="_blank" rel="noopener noreferrer"></a></div><div class="qualityRing"><b id="qualityBig">0</b><span>/100</span></div></div>
+      <div class="meta" id="meta"></div>
+      <article id="content"></article>
+      <details><summary>Security & diagnostic trace</summary><pre id="trace"></pre></details>
+    </section>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
