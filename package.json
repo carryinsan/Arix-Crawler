@@ -1,0 +1,6 @@
+{
+  "name": "arix-frontend",
+  "scripts": {
+    "build": "echo 'Deploying static frontend - skipping root Cargo build'"
+  }
+}
