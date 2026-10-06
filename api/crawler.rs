@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     net::{IpAddr, SocketAddr},
     sync::{Arc, OnceLock},
     time::{Duration, Instant},
@@ -126,7 +126,7 @@ async fn handler(req: Request) -> Result<Response<ResponseBody>, Error> {
             .header("access-control-allow-methods", "POST, OPTIONS")
             .header("access-control-allow-headers", "content-type")
             .header("cache-control", "no-store")
-            .body(ResponseBody::empty())?);
+            .body(ResponseBody::from(""))?);
     }
 
     if req.method() != http::Method::POST {
@@ -708,7 +708,8 @@ fn extract_content(
         warnings.push("text_cap_reached".into());
     }
 
-    (title, description, language, text, quality.max(if text.len() > 500 { 70 } else { 30 }), warnings)
+    let quality = quality.max(if text.len() > 500 { 70 } else { 30 });
+    (title, description, language, text, quality, warnings)
 }
 
 fn select_first_text(doc: &Html, selector_text: &str) -> Option<String> {
