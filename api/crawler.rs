@@ -145,7 +145,7 @@ async fn handler(req: Request) -> Result<Response<ResponseBody>, Error> {
             .header("access-control-allow-methods", "POST, OPTIONS")
             .header("access-control-allow-headers", "content-type")
             .header("cache-control", "no-store")
-            .body(ResponseBody::empty())?);
+            .body(ResponseBody::from(Vec::new()))?);
     }
 
     if req.method() != http::Method::POST {
@@ -758,7 +758,7 @@ fn extract_full_document(
         .ok()
         .and_then(|s| doc.select(&s).next())
         .and_then(|n| n.value().attr("content"))
-        .map(clean)
+        .map(|s| clean(s.to_string()))
         .filter(|x| !x.is_empty());
 
     let language = Selector::parse("html")
@@ -770,7 +770,7 @@ fn extract_full_document(
     let root = Selector::parse("body")
         .ok()
         .and_then(|s| doc.select(&s).next())
-        .or_else(|| doc.root_element());
+        .or_else(|| Some(doc.root_element()));
 
     let mut out = String::new();
     let mut stats = ExtractionStats::default();
@@ -855,7 +855,7 @@ fn extract_raw_visible_document(doc: &Html) -> String {
     let root = Selector::parse("body")
         .ok()
         .and_then(|s| doc.select(&s).next())
-        .or_else(|| doc.root_element());
+        .or_else(|| Some(doc.root_element()));
     let Some(root) = root else {
         return String::new();
     };
