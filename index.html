@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>ArixAI Ultra-Fast Search & Extraction Intelligence</title>
+<title>ArixAI Ultra-Fast Search & Full Page Extraction</title>
 <style>
 :root{
   --bg:#07090d;--card:rgba(14,18,25,0.85);--border:#202938;--border-active:#3b475d;
@@ -58,7 +58,7 @@ h1 span{color:#8a96a8}
 .meta .pill-strong{border-color:#2a5e42;color:#63e6a5;background:#0d261a}
 .meta .pill-likely{border-color:#485e2a;color:#d8e663;background:#1d260d}
 .meta .pill-partial{border-color:#5e4a2a;color:#e6b363;background:#261d0d}
-.content{padding:20px;font-size:14px;line-height:1.75;color:#d9dee7;white-space:pre-wrap;overflow-wrap:anywhere;max-height:500px;overflow:auto}
+.content{padding:20px;font-size:14px;line-height:1.8;color:#d9dee7;white-space:pre-wrap;overflow-wrap:anywhere;max-height:560px;overflow:auto;background:#090d13;border-bottom:1px solid #1a2230}
 details{border-top:1px solid var(--border);padding:14px 20px;color:#8995a8}
 summary{cursor:pointer;font-size:11px;font-weight:800}
 pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2230;border-radius:10px;padding:12px;margin-top:8px;overflow:auto}
@@ -73,8 +73,8 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
 <main class="shell">
 <header class="top">
   <div>
-    <div class="eyebrow">ArixAI · High Precision Search & Extraction</div>
-    <h1>Direct web intelligence.<br><span>Zero noise, verified only.</span></h1>
+    <div class="eyebrow">ArixAI · High Precision Search & Full Page Extraction</div>
+    <h1>Direct web intelligence.<br><span>Zero noise, full pages only.</span></h1>
   </div>
   <div class="status"><i id="statusDot"></i><span id="statusText">READY</span></div>
 </header>
@@ -83,7 +83,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
   <div class="eyebrow">ENTER SEARCH QUERY</div>
   <div class="searchbox">
     <input id="query" class="input" placeholder="e.g. todays news india or transformer architecture in deep learning" autocomplete="off" autofocus>
-    <button id="searchBtn" class="btn">Search & Extract</button>
+    <button id="searchBtn" class="btn">Search & Crawl Full Pages</button>
   </div>
 
   <div class="controls">
@@ -111,13 +111,13 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
       <select id="count" class="select">
         <option value="5">Top 5 results</option>
         <option value="10" selected>Top 10 results</option>
+        <option value="15">Top 15 results</option>
         <option value="20">Top 20 results</option>
-        <option value="40">Top 40 results</option>
       </select>
     </div>
     <div class="control-item">
-      <label for="apiEndpoint">Crawler API Endpoint</label>
-      <input id="apiEndpoint" class="select" value="https://web-crawler-pink.vercel.app/api/crawler" spellcheck="false">
+      <label for="searchEndpoint">Search Engine Endpoint</label>
+      <input id="searchEndpoint" class="select" value="https://web-crawler-pink.vercel.app/api/crawler" spellcheck="false">
     </div>
   </div>
 
@@ -145,7 +145,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
 
 <section id="resultsSection" class="hidden">
   <div class="summary">
-    <h2>Verified Results (<span id="resultsCount">0</span>)</h2>
+    <h2>Full Extracted Pages (<span id="resultsCount">0</span>)</h2>
     <div class="actions-row">
       <button id="copyJsonBtn" class="btn btn-ghost">Copy Full JSON</button>
       <button id="viewJsonBtn" class="btn btn-ghost">Toggle Raw JSON</button>
@@ -192,7 +192,6 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     currentExportPayload = null;
   }
 
-  // Pure heuristic scoring consistent with crawler engine
   function scoreCandidate(item, query) {
     if (typeof item.relevanceScore === 'number' && item.relevanceScore > 0) {
       const s = item.relevanceScore;
@@ -201,7 +200,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     const q = String(query || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(w => w.length > 2);
     if (!q.length) return { score: 50, band: 'Likely relevant' };
     const title = String(item.title || '').toLowerCase();
-    const snippet = String(item.snippet || item.extractedText || '').toLowerCase();
+    const snippet = String(item.snippet || '').toLowerCase();
     let hits = 0;
     q.forEach(t => {
       if (title.includes(t)) hits += 4;
@@ -213,7 +212,6 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     return { score, band: score >= 78 ? 'Strong match' : (score >= 52 ? 'Likely relevant' : (score >= 30 ? 'Partial match' : 'Weak match')) };
   }
 
-  // Identifies YouTube or un-crawlable pages
   function isYouTube(url) {
     try {
       const h = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
@@ -221,13 +219,6 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     } catch {
       return true;
     }
-  }
-
-  function isAccessDeniedOrBroken(item) {
-    if (item.httpStatus && (item.httpStatus === 401 || item.httpStatus === 403 || item.httpStatus >= 500)) return true;
-    const err = String(item.verificationError || '').toLowerCase();
-    if (err.includes('denied') || err.includes('forbidden') || err.includes('blocked')) return true;
-    return false;
   }
 
   async function executePipeline() {
@@ -239,10 +230,11 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     }
 
     resetUi();
-    setStatus('SEARCHING CRAWLER...', true);
-    $('progressBar').style.width = '25%';
+    setStatus('SEARCHING DISCOVERY ENGINE...', true);
+    $('progressBar').style.width = '20%';
 
-    const endpoint = $('apiEndpoint').value.trim() || 'https://web-crawler-pink.vercel.app/api/crawler';
+    const searchEndpoint = $('searchEndpoint').value.trim() || 'https://web-crawler-pink.vercel.app/api/crawler';
+    const extractorEndpoint = '/api/crawler'; // Local Rust Full-Page Extractor
     const mode = $('mode').value;
     const type = $('type').value;
     const count = $('count').value;
@@ -256,87 +248,117 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     let searchLatency = 0;
     let rawResults = [];
 
-    // STAGE 1: Discovery from crawler endpoint
+    // STAGE 1: Fast Discovery from Search Engine
     try {
-      const searchUrl = `${endpoint}?query=${encodeURIComponent(query)}&count=${count}&mode=${mode}&type=${type}&verify=true`;
+      const searchUrl = `${searchEndpoint}?query=${encodeURIComponent(query)}&count=${count}&mode=${mode}&type=${type}&verify=true`;
       const searchStart = performance.now();
       const res = await fetch(searchUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
       searchLatency = Math.round(performance.now() - searchStart);
       $('tSearch').textContent = ms(searchLatency);
 
-      if (!res.ok) throw new Error(`Crawler returned HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`Search engine returned HTTP ${res.status}`);
       const data = await res.json();
       rawResults = Array.isArray(data.results) ? data.results : [];
     } catch (err) {
       setStatus('SEARCH FAILED', false, true);
-      alert(`Crawler API Error: ${err.message}`);
+      alert(`Search API Error: ${err.message}`);
       return;
     }
 
-    $('progressBar').style.width = '65%';
-    setStatus('FILTERING & EXTRACTING...', true);
+    $('progressBar').style.width = '45%';
+    setStatus('FILTERING RELEVANT URLS...', true);
 
-    // STAGE 2: Filtering noise, YouTube, Weak matches, and Access Denied URLs
+    // STAGE 2: Filter Noise, YouTube, and Weak Matches (< 25%)
     let discardedCount = 0;
-    let failedCount = 0;
     const candidates = [];
 
     for (const r of rawResults) {
-      // 1. Disregard YouTube
       if (isYouTube(r.url) || r.type === 'video') {
         discardedCount++;
         continue;
       }
-      // 2. Disregard Access Denied / 403 / un-crawlable
-      if (isAccessDeniedOrBroken(r)) {
-        failedCount++;
-        continue;
-      }
-      // 3. Match calculation
       const { score, band } = scoreCandidate(r, query);
       r._score = score;
       r._band = band;
 
-      // Disregard Weak match (< 25%) or unchecked bands
       if (band === 'Weak match' || !allowedBands.has(band)) {
         discardedCount++;
         continue;
       }
-
       candidates.push(r);
     }
 
     $('tDiscarded').textContent = discardedCount;
 
-    // STAGE 3: Content Verification & Extraction
+    if (!candidates.length) {
+      $('tTotal').textContent = ms(Math.round(performance.now() - pipeStart));$('progressBar').style.width = '100%';
+      renderSuccessfulCards([]);
+      setStatus('NO RELEVANT URLS FOUND');
+      return;
+    }
+
+    // STAGE 3: Extract COMPLETE FULL-PAGE CONTENT via /api/crawler (Rust Extractor)
+    $('progressBar').style.width = '70%';
+    setStatus(`EXTRACTING FULL PAGES (${candidates.length})...`, true);
+
     const extractStart = performance.now();
+    let extractData = null;
+
+    try {
+      const targetUrls = candidates.map(c => c.url);
+      const res = await fetch(extractorEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: targetUrls })
+      });
+
+      if (!res.ok) throw new Error(`Crawler returned HTTP ${res.status}`);
+      extractData = await res.json();
+    } catch (err) {
+      setStatus('EXTRACTION FAILED', false, true);
+      alert(`Full-Page Extractor Error: ${err.message}`);
+      return;
+    }
+
+    const extractionLatency = Math.round(performance.now() - extractStart);
+    const totalLatency = Math.round(performance.now() - pipeStart);
+
+    $('tExtract').textContent = ms(extractionLatency);$('tTotal').textContent = ms(totalLatency);
+
+    // STAGE 4: Process Only Successful Extractions
     const successfulPages = [];
+    let failedCount = 0;
 
-    // Process candidate contents: verified crawler text or direct extraction
+    const extractedMap = new Map();
+    (extractData.results || []).forEach(item => {
+      if (item.url) extractedMap.set(item.url, item);
+      if (item.final_url) extractedMap.set(item.final_url, item);
+    });
+
     for (const c of candidates) {
-      const text = c.extractedText || c.pageContent || c.snippet || '';
-      const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
-
-      // Require meaningful content to declare success
-      if (text.length >= 25 && wordCount >= 5) {
+      const ext = extractedMap.get(c.url);
+      // Require the full-page crawler to have succeeded with real body content
+      if (ext && ext.ok && ext.text && ext.text.length >= 80) {
         successfulPages.push({
           rank: successfulPages.length + 1,
-          title: c.title || 'Untitled Web Page',
-          url: c.url,
-          domain: c.domain || (new URL(c.url).hostname),
+          title: ext.title || c.title || 'Untitled Web Page',
+          url: ext.final_url || ext.url || c.url,
+          domain: new URL(ext.final_url || ext.url || c.url).hostname.replace(/^www\./, ''),
           matchBand: c._band,
           matchScore: c._score,
           type: c.type || 'web',
-          content: text,
-          wordCount: wordCount,
-          publishedAt: c.publishedAt || null,
-          httpStatus: c.httpStatus || 200,
-          quality: Math.min(100, Math.round(c._score * 0.7 + Math.min(30, wordCount / 10))),
+          content: ext.text, // COMPLETE FULL PAGE TEXT
+          wordCount: ext.word_count || ext.text.split(/\s+/).filter(Boolean).length,
+          characterCount: ext.character_count || ext.text.length,
+          quality: ext.quality || Math.min(100, Math.round(c._score * 0.7 + 25)),
+          httpStatus: 200,
+          stages: ext.stages || {},
           trace: {
             source: c.source || 'multi-engine',
             verified: Boolean(c.verified),
-            trust: c.trust || 0.6,
-            verificationMethod: c.verificationMethod || 'engine-probe'
+            method: ext.method || 'full-static-dom-fast',
+            stages: ext.stages,
+            warnings: ext.warnings
           }
         });
       } else {
@@ -344,11 +366,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
       }
     }
 
-    const extractionLatency = Math.round(performance.now() - extractStart);
-    const totalLatency = Math.round(performance.now() - pipeStart);
-
-    $('tExtract').textContent = ms(extractionLatency);
-    $('tTotal').textContent = ms(totalLatency);$('tOk').textContent = successfulPages.length;
+    $('tOk').textContent = successfulPages.length;
     $('tFailed').textContent = failedCount;
 
     if (successfulPages.length) {
@@ -358,7 +376,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
       $('tQuality').textContent = '—';
     }
 
-    // Prepare complete exportable JSON
+    // Build the complete downloadable/copyable JSON
     currentExportPayload = {
       ok: true,
       query: query,
@@ -368,6 +386,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
         extractionLatencyMs: extractionLatency,
         totalLatencyMs: totalLatency,
         discoveredUrls: rawResults.length,
+        candidateUrls: candidates.length,
         successfulPagesCount: successfulPages.length,
         failedOrBlockedCount: failedCount,
         discardedNoiseCount: discardedCount
@@ -390,7 +409,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     $('resultsCount').textContent = pages.length;
 
     if (!pages.length) {
-      container.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);padding:40px">No candidate pages met the match and reachability criteria. Try a broader query.</div>';
+      container.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);padding:40px">No candidate pages could be extracted or met the criteria.</div>';
       $('resultsSection').classList.remove('hidden');
       return;
     }
@@ -402,7 +421,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
       article.innerHTML = `
         <div class="resultHead">
           <div>
-            <div class="eyebrow">#${idx + 1} · SUCCESSFUL EXTRACTION · ${esc(p.domain)}</div>
+            <div class="eyebrow">#${idx + 1} · FULL PAGE EXTRACTION · ${esc(p.domain)}</div>
             <h3>${esc(p.title)}</h3>
             <a class="url" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.url)}</a>
           </div>
@@ -413,16 +432,17 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
         </div>
         <div class="meta">
           <span class="${pillClass}">${esc(p.matchBand)}</span>
-          <span>${p.wordCount.toLocaleString()} words</span>
-          <span>HTTP ${esc(p.httpStatus)}</span>
+          <span><b>${p.wordCount.toLocaleString()} words</b></span>
+          <span>${p.characterCount.toLocaleString()} chars</span>
           <span>Quality ${p.quality}/100</span>
-          <span>Type: ${esc(p.type)}</span>
+          <span>Fetch ${ms(p.stages?.fetch_ms)}</span>
+          <span>Parse ${ms((p.stages?.parse_ms || 0) + (p.stages?.extraction_ms || 0))}</span>
           <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;margin-left:auto" data-copy-url="${esc(p.url)}">Copy URL</button>
-          <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" data-copy-text="${idx}">Copy Content</button>
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" data-copy-text="${idx}">Copy Full Content</button>
         </div>
         <div class="content">${esc(p.content)}</div>
         <details>
-          <summary>Diagnostic Trace & Metadata</summary>
+          <summary>Diagnostic Trace & Extraction Stages</summary>
           <pre>${esc(JSON.stringify(p.trace, null, 2))}</pre>
         </details>
       `;
@@ -439,7 +459,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     container.querySelectorAll('[data-copy-text]').forEach(btn => {
       btn.addEventListener('click', () => {
         const item = pages[Number(btn.getAttribute('data-copy-text'))];
-        navigator.clipboard.writeText(item.content).then(() => showToast('Content copied!'));
+        navigator.clipboard.writeText(item.content).then(() => showToast('Full content copied!'));
       });
     });
 
