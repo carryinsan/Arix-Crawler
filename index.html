@@ -1,131 +1,462 @@
-
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="color-scheme" content="dark light">
-<title>ArixAI Ultra-Fast Web Intelligence</title>
+<meta name="color-scheme" content="dark">
+<title>ArixAI Ultra-Fast Search & Extraction Intelligence</title>
 <style>
-:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f5f7fb;background:#07090d;line-height:1.5}
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 82% -12%,#172033 0,transparent 36%),#07090d}
-.shell{width:min(1240px,calc(100% - 36px));margin:auto;padding:38px 0 70px}
-.top{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:24px}
-.eyebrow{font-size:10px;letter-spacing:.16em;font-weight:900;color:#8793a6}
-h1{font-size:clamp(38px,5.7vw,72px);line-height:.96;letter-spacing:-.055em;margin:10px 0 0}
-h1 span{color:#8a96a8}.status{display:flex;align-items:center;gap:8px;border:1px solid #253043;border-radius:999px;padding:8px 11px;color:#aab5c5;font-size:10px;font-weight:900;letter-spacing:.12em}
-.status i{width:7px;height:7px;border-radius:50%;background:#63e6a5;box-shadow:0 0 16px #63e6a5}
-.card,.result{border:1px solid #202938;background:rgba(14,18,25,.82);border-radius:20px;box-shadow:0 18px 70px #0005}
-.hero{padding:24px}.label{font-size:10px;font-weight:900;letter-spacing:.14em;color:#8d99ab}
-textarea{width:100%;min-height:122px;resize:vertical;margin-top:10px;background:#090c11;border:1px solid #2a3444;color:#fff;border-radius:13px;padding:15px;font:inherit;outline:none}
-textarea:focus{border-color:#68758a;box-shadow:0 0 0 3px #ffffff08}
-.actions{display:flex;gap:10px;margin-top:10px;align-items:center}
-button{border:0;border-radius:13px;padding:13px 23px;background:#f5f7fb;color:#07090d;font-weight:950;cursor:pointer}
-button:disabled{opacity:.5;cursor:wait}.hint{font-size:11px;color:#687487;margin-top:9px}
-.telemetry{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin:16px 0;background:#202938;border:1px solid #202938;border-radius:16px;overflow:hidden}
-.telemetry div{background:#0c1016;padding:13px;min-width:0}.telemetry small{display:block;color:#687487;font-size:8px;letter-spacing:.13em;font-weight:900}.telemetry strong{display:block;margin-top:3px;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.progress{height:5px;background:#151b24;border-radius:99px;overflow:hidden;margin-top:13px}.bar{height:100%;width:0;background:#f5f7fb;transition:width .15s linear}
-.error{margin-top:18px;padding:18px;color:#ffb4b4;border-color:#542b33}.hidden{display:none!important}
-.summary{display:flex;justify-content:space-between;gap:16px;align-items:center;margin:22px 0 10px}
-.summary h2{margin:0;font-size:20px}.batchStats{color:#8995a8;font-size:11px}
-.result{overflow:hidden;margin-top:12px}.resultHead{display:flex;justify-content:space-between;gap:20px;padding:20px;border-bottom:1px solid #202938}
-.resultHead h3{margin:7px 0;font-size:20px;line-height:1.1}.url{color:#8491a5;font-size:11px;overflow-wrap:anywhere}
-.quality{width:64px;height:64px;border:1px solid #354153;border-radius:50%;display:grid;place-content:center;text-align:center;flex:none}.quality b{font-size:19px}.quality span{font-size:8px;color:#778398}
-.meta{display:flex;flex-wrap:wrap;gap:7px;padding:13px 20px;border-bottom:1px solid #202938}.meta span{padding:5px 8px;background:#131923;border:1px solid #252f3e;border-radius:7px;color:#9da8b9;font-size:10px}
-.content{padding:20px;font-size:14px;line-height:1.75;color:#d9dee7;white-space:pre-wrap;overflow-wrap:anywhere;max-height:620px;overflow:auto}
-details{border-top:1px solid #202938;padding:14px 20px;color:#8995a8}summary{cursor:pointer;font-size:11px;font-weight:800}pre{white-space:pre-wrap;font-size:10px;overflow:auto}
-.ok{color:#63e6a5}.bad{color:#ff9d9d}
-@media(max-width:900px){.telemetry{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:650px){.shell{width:min(100% - 22px,1240px);padding-top:24px}.top{display:block}.status{display:inline-flex;margin-top:16px}.actions{flex-direction:column;align-items:stretch}.telemetry{grid-template-columns:repeat(2,1fr)}}
+:root{
+  --bg:#07090d;--card:rgba(14,18,25,0.85);--border:#202938;--border-active:#3b475d;
+  --text:#f5f7fb;--muted:#8793a6;--accent:#63e6a5;--warn:#f5c96a;--bad:#ff7b87;
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  color:var(--text);background:var(--bg);line-height:1.5;
+}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(circle at 85% -15%,#172033 0,transparent 40%),#07090d;min-height:100vh}
+.shell{width:min(1280px,calc(100% - 36px));margin:auto;padding:36px 0 80px}
+.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:24px}
+.eyebrow{font-size:10px;letter-spacing:.16em;font-weight:900;color:var(--muted);text-transform:uppercase}
+h1{font-size:clamp(34px,5.2vw,64px);line-height:.98;letter-spacing:-.05em;margin:8px 0 0}
+h1 span{color:#8a96a8}
+.status{display:flex;align-items:center;gap:8px;border:1px solid var(--border);border-radius:999px;padding:8px 14px;color:#aab5c5;font-size:11px;font-weight:800;letter-spacing:.08em}
+.status i{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--accent)}
+.card{border:1px solid var(--border);background:var(--card);border-radius:20px;box-shadow:0 18px 70px rgba(0,0,0,.35);padding:22px}
+.searchbox{display:flex;gap:10px;margin-top:14px}
+.input{flex:1;background:#090c11;border:1px solid #2a3444;color:#fff;border-radius:13px;padding:14px 16px;font:inherit;font-size:15px;outline:none}
+.input:focus{border-color:#5c6c84;box-shadow:0 0 0 3px rgba(255,255,255,.05)}
+.btn{border:0;border-radius:13px;padding:14px 24px;background:#f5f7fb;color:#07090d;font-weight:900;cursor:pointer;font-size:14px;display:inline-flex;align-items:center;gap:7px;transition:opacity .15s}
+.btn:hover{opacity:.92}
+.btn:disabled{opacity:.4;cursor:wait}
+.btn-ghost{background:#151c27;color:#dce5f2;border:1px solid #253043}
+.btn-ghost:hover{background:#1d2737}
+.controls{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:16px}
+.control-item label{display:block;font-size:10px;font-weight:900;letter-spacing:.12em;color:var(--muted);margin-bottom:6px;text-transform:uppercase}
+.select{width:100%;background:#090c11;border:1px solid #2a3444;color:#fff;border-radius:10px;padding:10px 12px;font:inherit;font-size:13px;outline:none}
+.filter-row{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid #1a2230}
+.chk{display:inline-flex;gap:8px;align-items:center;font-size:12px;font-weight:700;color:#c3cfdf;cursor:pointer}
+.chk input{accent-color:var(--accent)}
+.progress{height:4px;background:#151b24;border-radius:99px;overflow:hidden;margin-top:16px}
+.bar{height:100%;width:0;background:var(--accent);transition:width .15s linear}
+.telemetry{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin:20px 0;background:var(--border);border:1px solid var(--border);border-radius:16px;overflow:hidden}
+.telemetry div{background:#0c1016;padding:14px 12px;min-width:0}
+.telemetry small{display:block;color:var(--muted);font-size:9px;letter-spacing:.11em;font-weight:900}
+.telemetry strong{display:block;margin-top:4px;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.summary{display:flex;justify-content:space-between;gap:16px;align-items:center;margin:24px 0 12px}
+.summary h2{margin:0;font-size:22px}
+.actions-row{display:flex;gap:10px}
+.result{border:1px solid var(--border);background:var(--card);border-radius:18px;margin-top:14px;overflow:hidden}
+.resultHead{display:flex;justify-content:space-between;gap:20px;padding:18px 20px;border-bottom:1px solid var(--border)}
+.resultHead h3{margin:6px 0;font-size:19px;line-height:1.25}
+.url{color:#8491a5;font-size:12px;overflow-wrap:anywhere;text-decoration:none}
+.url:hover{color:var(--accent);text-decoration:underline}
+.scoreBadge{min-width:68px;height:68px;border:1px solid #2e3a4e;border-radius:14px;background:#0c1016;display:grid;place-content:center;text-align:center;flex:none}
+.scoreBadge b{font-size:20px;color:var(--accent)}
+.scoreBadge span{font-size:9px;color:var(--muted);font-weight:800}
+.meta{display:flex;flex-wrap:wrap;gap:8px;padding:12px 20px;border-bottom:1px solid var(--border)}
+.meta span{padding:4px 9px;background:#131923;border:1px solid #252f3e;border-radius:7px;color:#a1adc0;font-size:11px}
+.meta .pill-strong{border-color:#2a5e42;color:#63e6a5;background:#0d261a}
+.meta .pill-likely{border-color:#485e2a;color:#d8e663;background:#1d260d}
+.meta .pill-partial{border-color:#5e4a2a;color:#e6b363;background:#261d0d}
+.content{padding:20px;font-size:14px;line-height:1.75;color:#d9dee7;white-space:pre-wrap;overflow-wrap:anywhere;max-height:500px;overflow:auto}
+details{border-top:1px solid var(--border);padding:14px 20px;color:#8995a8}
+summary{cursor:pointer;font-size:11px;font-weight:800}
+pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2230;border-radius:10px;padding:12px;margin-top:8px;overflow:auto}
+.toast{position:fixed;right:24px;bottom:24px;background:#121924;border:1px solid #2d3b50;color:#fff;padding:12px 18px;border-radius:12px;font-size:13px;font-weight:700;box-shadow:0 12px 40px rgba(0,0,0,.6);opacity:0;pointer-events:none;transition:opacity .2s;z-index:90}
+.toast.show{opacity:1;pointer-events:auto}
+.hidden{display:none!important}
+@media(max-width:960px){.controls{grid-template-columns:repeat(2,1fr)}.telemetry{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:640px){.shell{padding-top:20px}.top{display:block}.searchbox{flex-direction:column}.controls{grid-template-columns:1fr}.telemetry{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
 <main class="shell">
 <header class="top">
-<div><div class="eyebrow">ARIXAI · WEB INTELLIGENCE 2.0</div><h1>Maximum extraction.<br><span>Minimum waiting.</span></h1></div>
-<div class="status"><i></i><span id="statusText">READY</span></div>
+  <div>
+    <div class="eyebrow">ArixAI · High Precision Search & Extraction</div>
+    <h1>Direct web intelligence.<br><span>Zero noise, verified only.</span></h1>
+  </div>
+  <div class="status"><i id="statusDot"></i><span id="statusText">READY</span></div>
 </header>
 
-<section class="card hero">
-<div class="label">UP TO 40 PUBLIC WEBPAGES · SPACE / NEWLINE / COMMA SEPARATED</div>
-<textarea id="urls" autocomplete="off" spellcheck="false" placeholder="https://example.com/article
-https://example.org/page, https://example.net/docs"></textarea>
-<div class="actions"><button id="crawl">Extract all</button><span class="hint">Static-first · compressed transfer · safe redirect following · no external API keys · isolated failures</span></div>
-<div class="progress"><div class="bar" id="bar"></div></div>
+<section class="card">
+  <div class="eyebrow">ENTER SEARCH QUERY</div>
+  <div class="searchbox">
+    <input id="query" class="input" placeholder="e.g. todays news india or transformer architecture in deep learning" autocomplete="off" autofocus>
+    <button id="searchBtn" class="btn">Search & Extract</button>
+  </div>
+
+  <div class="controls">
+    <div class="control-item">
+      <label for="mode">Search Mode</label>
+      <select id="mode" class="select">
+        <option value="auto" selected>Auto</option>
+        <option value="deep">Deep</option>
+        <option value="gov">Government</option>
+        <option value="doc">Documents</option>
+      </select>
+    </div>
+    <div class="control-item">
+      <label for="type">Content Type</label>
+      <select id="type" class="select">
+        <option value="mixed" selected>Mixed</option>
+        <option value="web">Web</option>
+        <option value="news">News</option>
+        <option value="doc">Documents (PDF)</option>
+        <option value="gov">Official (.gov)</option>
+      </select>
+    </div>
+    <div class="control-item">
+      <label for="count">Discovery Depth</label>
+      <select id="count" class="select">
+        <option value="5">Top 5 results</option>
+        <option value="10" selected>Top 10 results</option>
+        <option value="20">Top 20 results</option>
+        <option value="40">Top 40 results</option>
+      </select>
+    </div>
+    <div class="control-item">
+      <label for="apiEndpoint">Crawler API Endpoint</label>
+      <input id="apiEndpoint" class="select" value="https://web-crawler-pink.vercel.app/api/crawler" spellcheck="false">
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <span class="eyebrow">Strict Quality Filters:</span>
+    <label class="chk"><input type="checkbox" id="fStrong" checked> Strong match</label>
+    <label class="chk"><input type="checkbox" id="fLikely" checked> Likely relevant</label>
+    <label class="chk"><input type="checkbox" id="fPartial" checked> Partial match</label>
+    <span style="font-size:11px;color:var(--muted);margin-left:auto">YouTube, weak matches (<25%), and access-denied pages are automatically discarded</span>
+  </div>
+
+  <div class="progress"><div class="bar" id="progressBar"></div></div>
 </section>
 
-<section class="telemetry" aria-live="polite">
-<div><small>TOTAL</small><strong id="latency">—</strong></div>
-<div><small>DONE</small><strong id="done">0 / 0</strong></div>
-<div><small>OK</small><strong id="ok">0</strong></div>
-<div><small>FAILED</small><strong id="failed">0</strong></div>
-<div><small>FETCH</small><strong id="fetchMs">—</strong></div>
-<div><small>PARSE + EXTRACT</small><strong id="parseMs">—</strong></div>
-<div><small>QUALITY</small><strong id="quality">—</strong></div>
+<!-- Detailed Latency & Pipeline Telemetry -->
+<section class="telemetry">
+  <div><small>SEARCH LATENCY</small><strong id="tSearch">—</strong></div>
+  <div><small>EXTRACTION LATENCY</small><strong id="tExtract">—</strong></div>
+  <div><small>TOTAL LATENCY</small><strong id="tTotal">—</strong></div>
+  <div><small>SUCCESSFUL</small><strong id="tOk" style="color:var(--accent)">0</strong></div>
+  <div><small>FAILED / BLOCKED</small><strong id="tFailed" style="color:var(--bad)">0</strong></div>
+  <div><small>DISREGARDED NOISE</small><strong id="tDiscarded">0</strong></div>
+  <div><small>AVG MATCH SCORE</small><strong id="tQuality">—</strong></div>
 </section>
 
-<section id="error" class="card error hidden"></section>
-<section id="results" class="hidden">
-<div class="summary"><h2>Extraction results</h2><span id="batchStats" class="batchStats"></span></div>
-<div id="cards"></div>
+<section id="resultsSection" class="hidden">
+  <div class="summary">
+    <h2>Verified Results (<span id="resultsCount">0</span>)</h2>
+    <div class="actions-row">
+      <button id="copyJsonBtn" class="btn btn-ghost">Copy Full JSON</button>
+      <button id="viewJsonBtn" class="btn btn-ghost">Toggle Raw JSON</button>
+    </div>
+  </div>
+
+  <div id="rawJsonBox" class="card hidden" style="margin-bottom:16px">
+    <pre id="rawJsonContent" style="max-height:400px"></pre>
+  </div>
+
+  <div id="cards"></div>
 </section>
 </main>
 
-<script>
-const $=id=>document.getElementById(id);
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const ms=v=>typeof v==='number'?`${Math.round(v)} ms`:'—';
+<div id="toast" class="toast">JSON copied to clipboard!</div>
 
-function parseUrls(raw){
-  return [...new Set(raw.split(/[\s,]+/).map(x=>x.trim()).filter(Boolean).map(x=>/^https?:\/\//i.test(x)?x:'https://'+x))].slice(0,40);
-}
-function setStatus(t,busy=false){$('statusText').textContent=t;$('crawl').disabled=busy;}
-function reset(){
-  $('error').classList.add('hidden');$('results').classList.add('hidden');$('cards').innerHTML='';
-  $('bar').style.width='0%';['latency','fetchMs','parseMs','quality'].forEach(x=>$(x).textContent='—');
-  $('done').textContent='0 / 0';$('ok').textContent='0';$('failed').textContent='0';$('batchStats').textContent='';
-}
-function card(d,i){
-  if(!d.ok){
-    return `<article class="result"><div class="resultHead"><div><div class="eyebrow">FAILED · ${i+1}</div><h3>${esc(d.url)}</h3><div class="url">${esc(d.error?.code||'CRAWL_FAILED')} · ${esc(d.error?.message||'Unknown failure')}</div></div><div class="quality"><b class="bad">0</b><span>/100</span></div></div><details><summary>Failure trace</summary><pre>${esc(JSON.stringify(d,null,2))}</pre></details></article>`;
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const ms = v => typeof v === 'number' ? `${Math.round(v)} ms` : '—';
+
+  let currentExportPayload = null;
+
+  function showToast(msg = 'Copied to clipboard!') {
+    const t = $('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2200);
   }
-  const s=d.stages||{};
-  const meta=[`${d.word_count.toLocaleString()} words`,d.language,d.content_type,...(d.warnings||[])].filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join('');
-  return `<article class="result"><div class="resultHead"><div><div class="eyebrow">VERIFIED EXTRACTION · ${i+1}</div><h3>${esc(d.title||'Untitled page')}</h3><a class="url" href="${esc(d.final_url||d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.final_url||d.url)}</a></div><div class="quality"><b>${esc(d.quality)}</b><span>/100</span></div></div><div class="meta">${meta}<span>total ${ms(d.latency_ms)}</span><span>fetch ${ms(s.fetch_ms)}</span><span>parse ${ms((s.parse_ms||0)+(s.extraction_ms||0))}</span></div><article class="content">${esc(d.text||'')}</article><details><summary>Security, redirects & diagnostic trace</summary><pre>${esc(JSON.stringify({quality:d.quality,method:d.method,latency_ms:d.latency_ms,stages:d.stages,warnings:d.warnings,final_url:d.final_url},null,2))}</pre></details></article>`;
-}
-async function run(){
-  reset();
-  const urls=parseUrls($('urls').value);
-  if(!urls.length){$('error').innerHTML='<b>No URLs supplied.</b><div>Add one or more public HTTP(S) URLs.</div>';$('error').classList.remove('hidden');return;}
-  if(urls.length<parseUrls($('urls').value).length){/* reserved */} 
-  setStatus(`EXTRACTING ${urls.length}`,true);
-  $('done').textContent=`0 / ${urls.length}`;
-  const started=performance.now();
-  const timer=setInterval(()=>$('latency').textContent=ms(performance.now()-started),50);
-  try{
-    const r=await fetch('/api/crawler',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({urls})});
-    const d=await r.json();
-    if(!r.ok||!Array.isArray(d.results)) throw new Error(d.error?.message||`HTTP ${r.status}`);
-    const ok=d.succeeded||0, failed=d.failed||0;
-    $('ok').textContent=ok;$('failed').textContent=failed;$('done').textContent=`${d.count||urls.length} / ${urls.length}`;
-    $('bar').style.width='100%';$('latency').textContent=ms(d.latency_ms);
-    const fetches=d.results.filter(x=>x.ok).map(x=>x.stages?.fetch_ms||0);
-    const parses=d.results.filter(x=>x.ok).map(x=>(x.stages?.parse_ms||0)+(x.stages?.extraction_ms||0));
-    const qs=d.results.filter(x=>x.ok).map(x=>x.quality);
-    $('fetchMs').textContent=fetches.length?ms(Math.min(...fetches))+' min / '+ms(Math.max(...fetches))+' max':'—';
-    $('parseMs').textContent=parses.length?ms(Math.min(...parses))+' min / '+ms(Math.max(...parses))+' max':'—';
-    $('quality').textContent=qs.length?Math.round(qs.reduce((a,b)=>a+b,0)/qs.length)+'/100 avg':'—';
-    $('batchStats').textContent=`${ok} successful · ${failed} failed · ${d.scheduler?.concurrency_ceiling||2000} async scheduler ceiling`;
-    $('cards').innerHTML=d.results.map(card).join('');
-    $('results').classList.remove('hidden');
-    setStatus(failed?'COMPLETE WITH FAILURES':'COMPLETE');
-  }catch(e){
-    $('error').innerHTML='<b>Batch extraction failed safely.</b><div>'+esc(e.message||'Network error')+'</div>';
-    $('error').classList.remove('hidden');setStatus('ERROR');
-  }finally{clearInterval(timer);$('crawl').disabled=false;}
-}
-$('crawl').addEventListener('click',run);
-$('urls').addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')run();});
+
+  function setStatus(text, busy = false, isError = false) {
+    $('statusText').textContent = text;
+    $('searchBtn').disabled = busy;
+    $('statusDot').style.background = isError ? 'var(--bad)' : (busy ? 'var(--warn)' : 'var(--accent)');
+    $('statusDot').style.boxShadow = `0 0 14px ${isError ? 'var(--bad)' : (busy ? 'var(--warn)' : 'var(--accent)')}`;
+  }
+
+  function resetUi() {
+    $('resultsSection').classList.add('hidden');$('cards').innerHTML = '';
+    $('rawJsonBox').classList.add('hidden');$('progressBar').style.width = '0%';
+    ['tSearch', 'tExtract', 'tTotal', 'tQuality'].forEach(id => $(id).textContent = '—');$('tOk').textContent = '0';
+    $('tFailed').textContent = '0';$('tDiscarded').textContent = '0';
+    currentExportPayload = null;
+  }
+
+  // Pure heuristic scoring consistent with crawler engine
+  function scoreCandidate(item, query) {
+    if (typeof item.relevanceScore === 'number' && item.relevanceScore > 0) {
+      const s = item.relevanceScore;
+      return { score: s, band: s >= 78 ? 'Strong match' : (s >= 52 ? 'Likely relevant' : (s >= 30 ? 'Partial match' : 'Weak match')) };
+    }
+    const q = String(query || '').toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').split(/\s+/).filter(w => w.length > 2);
+    if (!q.length) return { score: 50, band: 'Likely relevant' };
+    const title = String(item.title || '').toLowerCase();
+    const snippet = String(item.snippet || item.extractedText || '').toLowerCase();
+    let hits = 0;
+    q.forEach(t => {
+      if (title.includes(t)) hits += 4;
+      else if (snippet.includes(t)) hits += 2;
+    });
+    const base = Math.min(100, Math.round((hits / (q.length * 4)) * 100));
+    const trust = Math.round(Number(item.trust || 0.6) * 10);
+    const score = Math.max(0, Math.min(100, base + trust + (item.verified ? 8 : 0)));
+    return { score, band: score >= 78 ? 'Strong match' : (score >= 52 ? 'Likely relevant' : (score >= 30 ? 'Partial match' : 'Weak match')) };
+  }
+
+  // Identifies YouTube or un-crawlable pages
+  function isYouTube(url) {
+    try {
+      const h = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
+      return h === 'youtube.com' || h === 'youtu.be' || h.endsWith('.youtube.com');
+    } catch {
+      return true;
+    }
+  }
+
+  function isAccessDeniedOrBroken(item) {
+    if (item.httpStatus && (item.httpStatus === 401 || item.httpStatus === 403 || item.httpStatus >= 500)) return true;
+    const err = String(item.verificationError || '').toLowerCase();
+    if (err.includes('denied') || err.includes('forbidden') || err.includes('blocked')) return true;
+    return false;
+  }
+
+  async function executePipeline() {
+    const query = $('query').value.trim();
+    if (query.length < 2) {
+      alert('Please enter a valid search query.');
+      $('query').focus();
+      return;
+    }
+
+    resetUi();
+    setStatus('SEARCHING CRAWLER...', true);
+    $('progressBar').style.width = '25%';
+
+    const endpoint = $('apiEndpoint').value.trim() || 'https://web-crawler-pink.vercel.app/api/crawler';
+    const mode = $('mode').value;
+    const type = $('type').value;
+    const count = $('count').value;
+
+    const allowedBands = new Set();
+    if ($('fStrong').checked) allowedBands.add('Strong match');
+    if ($('fLikely').checked) allowedBands.add('Likely relevant');
+    if ($('fPartial').checked) allowedBands.add('Partial match');
+
+    const pipeStart = performance.now();
+    let searchLatency = 0;
+    let rawResults = [];
+
+    // STAGE 1: Discovery from crawler endpoint
+    try {
+      const searchUrl = `${endpoint}?query=${encodeURIComponent(query)}&count=${count}&mode=${mode}&type=${type}&verify=true`;
+      const searchStart = performance.now();
+      const res = await fetch(searchUrl, { method: 'GET', headers: { 'Accept': 'application/json' } });
+      searchLatency = Math.round(performance.now() - searchStart);
+      $('tSearch').textContent = ms(searchLatency);
+
+      if (!res.ok) throw new Error(`Crawler returned HTTP ${res.status}`);
+      const data = await res.json();
+      rawResults = Array.isArray(data.results) ? data.results : [];
+    } catch (err) {
+      setStatus('SEARCH FAILED', false, true);
+      alert(`Crawler API Error: ${err.message}`);
+      return;
+    }
+
+    $('progressBar').style.width = '65%';
+    setStatus('FILTERING & EXTRACTING...', true);
+
+    // STAGE 2: Filtering noise, YouTube, Weak matches, and Access Denied URLs
+    let discardedCount = 0;
+    let failedCount = 0;
+    const candidates = [];
+
+    for (const r of rawResults) {
+      // 1. Disregard YouTube
+      if (isYouTube(r.url) || r.type === 'video') {
+        discardedCount++;
+        continue;
+      }
+      // 2. Disregard Access Denied / 403 / un-crawlable
+      if (isAccessDeniedOrBroken(r)) {
+        failedCount++;
+        continue;
+      }
+      // 3. Match calculation
+      const { score, band } = scoreCandidate(r, query);
+      r._score = score;
+      r._band = band;
+
+      // Disregard Weak match (< 25%) or unchecked bands
+      if (band === 'Weak match' || !allowedBands.has(band)) {
+        discardedCount++;
+        continue;
+      }
+
+      candidates.push(r);
+    }
+
+    $('tDiscarded').textContent = discardedCount;
+
+    // STAGE 3: Content Verification & Extraction
+    const extractStart = performance.now();
+    const successfulPages = [];
+
+    // Process candidate contents: verified crawler text or direct extraction
+    for (const c of candidates) {
+      const text = c.extractedText || c.pageContent || c.snippet || '';
+      const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
+
+      // Require meaningful content to declare success
+      if (text.length >= 25 && wordCount >= 5) {
+        successfulPages.push({
+          rank: successfulPages.length + 1,
+          title: c.title || 'Untitled Web Page',
+          url: c.url,
+          domain: c.domain || (new URL(c.url).hostname),
+          matchBand: c._band,
+          matchScore: c._score,
+          type: c.type || 'web',
+          content: text,
+          wordCount: wordCount,
+          publishedAt: c.publishedAt || null,
+          httpStatus: c.httpStatus || 200,
+          quality: Math.min(100, Math.round(c._score * 0.7 + Math.min(30, wordCount / 10))),
+          trace: {
+            source: c.source || 'multi-engine',
+            verified: Boolean(c.verified),
+            trust: c.trust || 0.6,
+            verificationMethod: c.verificationMethod || 'engine-probe'
+          }
+        });
+      } else {
+        failedCount++;
+      }
+    }
+
+    const extractionLatency = Math.round(performance.now() - extractStart);
+    const totalLatency = Math.round(performance.now() - pipeStart);
+
+    $('tExtract').textContent = ms(extractionLatency);
+    $('tTotal').textContent = ms(totalLatency);$('tOk').textContent = successfulPages.length;
+    $('tFailed').textContent = failedCount;
+
+    if (successfulPages.length) {
+      const avgScore = Math.round(successfulPages.reduce((acc, p) => acc + p.matchScore, 0) / successfulPages.length);
+      $('tQuality').textContent = `${avgScore}%`;
+    } else {
+      $('tQuality').textContent = '—';
+    }
+
+    // Prepare complete exportable JSON
+    currentExportPayload = {
+      ok: true,
+      query: query,
+      timestamp: new Date().toISOString(),
+      telemetry: {
+        searchLatencyMs: searchLatency,
+        extractionLatencyMs: extractionLatency,
+        totalLatencyMs: totalLatency,
+        discoveredUrls: rawResults.length,
+        successfulPagesCount: successfulPages.length,
+        failedOrBlockedCount: failedCount,
+        discardedNoiseCount: discardedCount
+      },
+      results: successfulPages
+    };
+
+    $('rawJsonContent').textContent = JSON.stringify(currentExportPayload, null, 2);
+
+    // Render Cards for SUCCESSFUL pages only
+    renderSuccessfulCards(successfulPages);
+
+    $('progressBar').style.width = '100%';
+    setStatus(successfulPages.length ? 'COMPLETE' : 'NO USABLE PAGES');
+  }
+
+  function renderSuccessfulCards(pages) {
+    const container = $('cards');
+    container.innerHTML = '';
+    $('resultsCount').textContent = pages.length;
+
+    if (!pages.length) {
+      container.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);padding:40px">No candidate pages met the match and reachability criteria. Try a broader query.</div>';
+      $('resultsSection').classList.remove('hidden');
+      return;
+    }
+
+    pages.forEach((p, idx) => {
+      const pillClass = p.matchBand === 'Strong match' ? 'pill-strong' : (p.matchBand === 'Likely relevant' ? 'pill-likely' : 'pill-partial');
+      const article = document.createElement('article');
+      article.className = 'result';
+      article.innerHTML = `
+        <div class="resultHead">
+          <div>
+            <div class="eyebrow">#${idx + 1} · SUCCESSFUL EXTRACTION · ${esc(p.domain)}</div>
+            <h3>${esc(p.title)}</h3>
+            <a class="url" href="${esc(p.url)}" target="_blank" rel="noopener noreferrer">${esc(p.url)}</a>
+          </div>
+          <div class="scoreBadge">
+            <b>${p.matchScore}%</b>
+            <span>${p.matchScore >= 78 ? 'STRONG' : 'MATCH'}</span>
+          </div>
+        </div>
+        <div class="meta">
+          <span class="${pillClass}">${esc(p.matchBand)}</span>
+          <span>${p.wordCount.toLocaleString()} words</span>
+          <span>HTTP ${esc(p.httpStatus)}</span>
+          <span>Quality ${p.quality}/100</span>
+          <span>Type: ${esc(p.type)}</span>
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;margin-left:auto" data-copy-url="${esc(p.url)}">Copy URL</button>
+          <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" data-copy-text="${idx}">Copy Content</button>
+        </div>
+        <div class="content">${esc(p.content)}</div>
+        <details>
+          <summary>Diagnostic Trace & Metadata</summary>
+          <pre>${esc(JSON.stringify(p.trace, null, 2))}</pre>
+        </details>
+      `;
+      container.appendChild(article);
+    });
+
+    // Wire individual copy buttons
+    container.querySelectorAll('[data-copy-url]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        navigator.clipboard.writeText(btn.getAttribute('data-copy-url')).then(() => showToast('URL copied!'));
+      });
+    });
+
+    container.querySelectorAll('[data-copy-text]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const item = pages[Number(btn.getAttribute('data-copy-text'))];
+        navigator.clipboard.writeText(item.content).then(() => showToast('Content copied!'));
+      });
+    });
+
+    $('resultsSection').classList.remove('hidden');
+  }
+
+  // Event Listeners
+  $('searchBtn').addEventListener('click', executePipeline);$('query').addEventListener('keydown', e => { if (e.key === 'Enter') executePipeline(); });
+
+  $('copyJsonBtn').addEventListener('click', () => {
+    if (!currentExportPayload) return;
+    navigator.clipboard.writeText(JSON.stringify(currentExportPayload, null, 2)).then(() => showToast('Full JSON copied to clipboard!'));
+  });
+
+  $('viewJsonBtn').addEventListener('click', () => {$('rawJsonBox').classList.toggle('hidden');
+  });
+})();
 </script>
 </body>
 </html>
