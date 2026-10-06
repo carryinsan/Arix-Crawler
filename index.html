@@ -2,42 +2,130 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="color-scheme" content="dark light">
-  <title>ArixAI Web Intelligence</title>
-  <link rel="stylesheet" href="/styles.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>ArixAI Ultra-Fast Web Intelligence</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f5f7fb;background:#07090d;line-height:1.5}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 82% -12%,#172033 0,transparent 36%),#07090d}
+.shell{width:min(1240px,calc(100% - 36px));margin:auto;padding:38px 0 70px}
+.top{display:flex;justify-content:space-between;gap:24px;align-items:flex-start;margin-bottom:24px}
+.eyebrow{font-size:10px;letter-spacing:.16em;font-weight:900;color:#8793a6}
+h1{font-size:clamp(38px,5.7vw,72px);line-height:.96;letter-spacing:-.055em;margin:10px 0 0}
+h1 span{color:#8a96a8}.status{display:flex;align-items:center;gap:8px;border:1px solid #253043;border-radius:999px;padding:8px 11px;color:#aab5c5;font-size:10px;font-weight:900;letter-spacing:.12em}
+.status i{width:7px;height:7px;border-radius:50%;background:#63e6a5;box-shadow:0 0 16px #63e6a5}
+.card,.result{border:1px solid #202938;background:rgba(14,18,25,.82);border-radius:20px;box-shadow:0 18px 70px #0005}
+.hero{padding:24px}.label{font-size:10px;font-weight:900;letter-spacing:.14em;color:#8d99ab}
+textarea{width:100%;min-height:122px;resize:vertical;margin-top:10px;background:#090c11;border:1px solid #2a3444;color:#fff;border-radius:13px;padding:15px;font:inherit;outline:none}
+textarea:focus{border-color:#68758a;box-shadow:0 0 0 3px #ffffff08}
+.actions{display:flex;gap:10px;margin-top:10px;align-items:center}
+button{border:0;border-radius:13px;padding:13px 23px;background:#f5f7fb;color:#07090d;font-weight:950;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}.hint{font-size:11px;color:#687487;margin-top:9px}
+.telemetry{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;margin:16px 0;background:#202938;border:1px solid #202938;border-radius:16px;overflow:hidden}
+.telemetry div{background:#0c1016;padding:13px;min-width:0}.telemetry small{display:block;color:#687487;font-size:8px;letter-spacing:.13em;font-weight:900}.telemetry strong{display:block;margin-top:3px;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.progress{height:5px;background:#151b24;border-radius:99px;overflow:hidden;margin-top:13px}.bar{height:100%;width:0;background:#f5f7fb;transition:width .15s linear}
+.error{margin-top:18px;padding:18px;color:#ffb4b4;border-color:#542b33}.hidden{display:none!important}
+.summary{display:flex;justify-content:space-between;gap:16px;align-items:center;margin:22px 0 10px}
+.summary h2{margin:0;font-size:20px}.batchStats{color:#8995a8;font-size:11px}
+.result{overflow:hidden;margin-top:12px}.resultHead{display:flex;justify-content:space-between;gap:20px;padding:20px;border-bottom:1px solid #202938}
+.resultHead h3{margin:7px 0;font-size:20px;line-height:1.1}.url{color:#8491a5;font-size:11px;overflow-wrap:anywhere}
+.quality{width:64px;height:64px;border:1px solid #354153;border-radius:50%;display:grid;place-content:center;text-align:center;flex:none}.quality b{font-size:19px}.quality span{font-size:8px;color:#778398}
+.meta{display:flex;flex-wrap:wrap;gap:7px;padding:13px 20px;border-bottom:1px solid #202938}.meta span{padding:5px 8px;background:#131923;border:1px solid #252f3e;border-radius:7px;color:#9da8b9;font-size:10px}
+.content{padding:20px;font-size:14px;line-height:1.75;color:#d9dee7;white-space:pre-wrap;overflow-wrap:anywhere;max-height:620px;overflow:auto}
+details{border-top:1px solid #202938;padding:14px 20px;color:#8995a8}summary{cursor:pointer;font-size:11px;font-weight:800}pre{white-space:pre-wrap;font-size:10px;overflow:auto}
+.ok{color:#63e6a5}.bad{color:#ff9d9d}
+@media(max-width:900px){.telemetry{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:650px){.shell{width:min(100% - 22px,1240px);padding-top:24px}.top{display:block}.status{display:inline-flex;margin-top:16px}.actions{flex-direction:column;align-items:stretch}.telemetry{grid-template-columns:repeat(2,1fr)}}
+</style>
 </head>
 <body>
-  <main class="shell">
-    <header class="top">
-      <div><div class="eyebrow">ARIXAI · WEB INTELLIGENCE</div><h1>Extract the signal.<br><span>Ignore the noise.</span></h1></div>
-      <div class="status"><i></i><span id="statusText">READY</span></div>
-    </header>
+<main class="shell">
+<header class="top">
+<div><div class="eyebrow">ARIXAI · WEB INTELLIGENCE 2.0</div><h1>Maximum extraction.<br><span>Minimum waiting.</span></h1></div>
+<div class="status"><i></i><span id="statusText">READY</span></div>
+</header>
 
-    <section class="card hero">
-      <label for="url">PUBLIC WEBPAGE</label>
-      <div class="inputRow"><input id="url" type="url" inputmode="url" autocomplete="off" placeholder="https://example.com/article"><button id="crawl">Crawl</button></div>
-      <div class="hint">Static-first · no page JavaScript execution · redirect validation · SSRF guard · adaptive extraction</div>
-    </section>
+<section class="card hero">
+<div class="label">UP TO 40 PUBLIC WEBPAGES · SPACE / NEWLINE / COMMA SEPARATED</div>
+<textarea id="urls" autocomplete="off" spellcheck="false" placeholder="https://example.com/article
+https://example.org/page, https://example.net/docs"></textarea>
+<div class="actions"><button id="crawl">Extract all</button><span class="hint">Static-first · compressed transfer · safe redirect following · no external API keys · isolated failures</span></div>
+<div class="progress"><div class="bar" id="bar"></div></div>
+</section>
 
-    <section class="telemetry" aria-live="polite">
-      <div><small>TOTAL</small><strong id="latency">—</strong></div>
-      <div><small>FETCH</small><strong id="fetchMs">—</strong></div>
-      <div><small>PARSE</small><strong id="parseMs">—</strong></div>
-      <div><small>QUALITY</small><strong id="quality">—</strong></div>
-      <div><small>METHOD</small><strong id="method">—</strong></div>
-    </section>
+<section class="telemetry" aria-live="polite">
+<div><small>TOTAL</small><strong id="latency">—</strong></div>
+<div><small>DONE</small><strong id="done">0 / 0</strong></div>
+<div><small>OK</small><strong id="ok">0</strong></div>
+<div><small>FAILED</small><strong id="failed">0</strong></div>
+<div><small>FETCH</small><strong id="fetchMs">—</strong></div>
+<div><small>PARSE + EXTRACT</small><strong id="parseMs">—</strong></div>
+<div><small>QUALITY</small><strong id="quality">—</strong></div>
+</section>
 
-    <section id="error" class="card error hidden"></section>
+<section id="error" class="card error hidden"></section>
+<section id="results" class="hidden">
+<div class="summary"><h2>Extraction results</h2><span id="batchStats" class="batchStats"></span></div>
+<div id="cards"></div>
+</section>
+</main>
 
-    <section id="result" class="result hidden">
-      <div class="resultHead"><div><div class="eyebrow">VERIFIED EXTRACTION</div><h2 id="title">—</h2><a id="finalUrl" target="_blank" rel="noopener noreferrer"></a></div><div class="qualityRing"><b id="qualityBig">0</b><span>/100</span></div></div>
-      <div class="meta" id="meta"></div>
-      <article id="content"></article>
-      <details><summary>Security & diagnostic trace</summary><pre id="trace"></pre></details>
-    </section>
-  </main>
-  <script src="/app.js" defer></script>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ms=v=>typeof v==='number'?`${Math.round(v)} ms`:'—';
+
+function parseUrls(raw){
+  return [...new Set(raw.split(/[\s,]+/).map(x=>x.trim()).filter(Boolean).map(x=>/^https?:\/\//i.test(x)?x:'https://'+x))].slice(0,40);
+}
+function setStatus(t,busy=false){$('statusText').textContent=t;$('crawl').disabled=busy;}
+function reset(){
+  $('error').classList.add('hidden');$('results').classList.add('hidden');$('cards').innerHTML='';
+  $('bar').style.width='0%';['latency','fetchMs','parseMs','quality'].forEach(x=>$(x).textContent='—');
+  $('done').textContent='0 / 0';$('ok').textContent='0';$('failed').textContent='0';$('batchStats').textContent='';
+}
+function card(d,i){
+  if(!d.ok){
+    return `<article class="result"><div class="resultHead"><div><div class="eyebrow">FAILED · ${i+1}</div><h3>${esc(d.url)}</h3><div class="url">${esc(d.error?.code||'CRAWL_FAILED')} · ${esc(d.error?.message||'Unknown failure')}</div></div><div class="quality"><b class="bad">0</b><span>/100</span></div></div><details><summary>Failure trace</summary><pre>${esc(JSON.stringify(d,null,2))}</pre></details></article>`;
+  }
+  const s=d.stages||{};
+  const meta=[`${d.word_count.toLocaleString()} words`,d.language,d.content_type,...(d.warnings||[])].filter(Boolean).map(x=>`<span>${esc(x)}</span>`).join('');
+  return `<article class="result"><div class="resultHead"><div><div class="eyebrow">VERIFIED EXTRACTION · ${i+1}</div><h3>${esc(d.title||'Untitled page')}</h3><a class="url" href="${esc(d.final_url||d.url)}" target="_blank" rel="noopener noreferrer">${esc(d.final_url||d.url)}</a></div><div class="quality"><b>${esc(d.quality)}</b><span>/100</span></div></div><div class="meta">${meta}<span>total ${ms(d.latency_ms)}</span><span>fetch ${ms(s.fetch_ms)}</span><span>parse ${ms((s.parse_ms||0)+(s.extraction_ms||0))}</span></div><article class="content">${esc(d.text||'')}</article><details><summary>Security, redirects & diagnostic trace</summary><pre>${esc(JSON.stringify({quality:d.quality,method:d.method,latency_ms:d.latency_ms,stages:d.stages,warnings:d.warnings,final_url:d.final_url},null,2))}</pre></details></article>`;
+}
+async function run(){
+  reset();
+  const urls=parseUrls($('urls').value);
+  if(!urls.length){$('error').innerHTML='<b>No URLs supplied.</b><div>Add one or more public HTTP(S) URLs.</div>';$('error').classList.remove('hidden');return;}
+  if(urls.length<parseUrls($('urls').value).length){/* reserved */} 
+  setStatus(`EXTRACTING ${urls.length}`,true);
+  $('done').textContent=`0 / ${urls.length}`;
+  const started=performance.now();
+  const timer=setInterval(()=>$('latency').textContent=ms(performance.now()-started),50);
+  try{
+    const r=await fetch('/api/crawler',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({urls})});
+    const d=await r.json();
+    if(!r.ok||!Array.isArray(d.results)) throw new Error(d.error?.message||`HTTP ${r.status}`);
+    const ok=d.succeeded||0, failed=d.failed||0;
+    $('ok').textContent=ok;$('failed').textContent=failed;$('done').textContent=`${d.count||urls.length} / ${urls.length}`;
+    $('bar').style.width='100%';$('latency').textContent=ms(d.latency_ms);
+    const fetches=d.results.filter(x=>x.ok).map(x=>x.stages?.fetch_ms||0);
+    const parses=d.results.filter(x=>x.ok).map(x=>(x.stages?.parse_ms||0)+(x.stages?.extraction_ms||0));
+    const qs=d.results.filter(x=>x.ok).map(x=>x.quality);
+    $('fetchMs').textContent=fetches.length?ms(Math.min(...fetches))+' min / '+ms(Math.max(...fetches))+' max':'—';
+    $('parseMs').textContent=parses.length?ms(Math.min(...parses))+' min / '+ms(Math.max(...parses))+' max':'—';
+    $('quality').textContent=qs.length?Math.round(qs.reduce((a,b)=>a+b,0)/qs.length)+'/100 avg':'—';
+    $('batchStats').textContent=`${ok} successful · ${failed} failed · ${d.scheduler?.concurrency_ceiling||2000} async scheduler ceiling`;
+    $('cards').innerHTML=d.results.map(card).join('');
+    $('results').classList.remove('hidden');
+    setStatus(failed?'COMPLETE WITH FAILURES':'COMPLETE');
+  }catch(e){
+    $('error').innerHTML='<b>Batch extraction failed safely.</b><div>'+esc(e.message||'Network error')+'</div>';
+    $('error').classList.remove('hidden');setStatus('ERROR');
+  }finally{clearInterval(timer);$('crawl').disabled=false;}
+}
+$('crawl').addEventListener('click',run);
+$('urls').addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='Enter')run();});
+</script>
 </body>
 </html>
