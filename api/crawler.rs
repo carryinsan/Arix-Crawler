@@ -15,20 +15,22 @@ use tokio::{net::lookup_host, sync::Semaphore};
 use url::Url;
 use vercel_runtime::{run, service_fn, Error, Request, Response, ResponseBody};
 
+// IMPORTANT: these are safety bounds, not text-extraction truncation limits.
+// The extractor reads the entire response up to MAX_HTML_BYTES, then walks the
+// entire DOM without a MAX_TEXT/character cutoff.
 const MAX_REDIRECTS: usize = 8;
-const MAX_BYTES: usize = 16 * 1024 * 1024;
-const MAX_TEXT: usize = 1_500_000;
+const MAX_HTML_BYTES: usize = 64 * 1024 * 1024;
 const MAX_URL_LEN: usize = 4096;
 const MAX_INPUT_BYTES: usize = 16 * 1024;
 const MAX_URLS_PER_REQUEST: usize = 40;
 const SCHEDULER_CEILING: usize = 2000;
 const FETCH_TIMEOUT_SECS: u64 = 14;
 const CONNECT_TIMEOUT_SECS: u64 = 4;
-const USER_AGENT: &str = "ArixAI-WebIntelligence/2.0";
-const MAX_REDIRECT_TARGETS: usize = 8;
-const MAX_CANDIDATES: usize = 180;
-const MAX_CHILDREN_SCAN: usize = 20000;
+const USER_AGENT: &str = "ArixAI-WebIntelligence/3.0-Full";
 
+// Per-process gate. The HTTP request itself is still capped at 40 URLs, but
+// the scheduler can safely accommodate many callers without a hard-coded
+// 16-request bottleneck from the earlier version.
 static GLOBAL_GATE: OnceLock<Arc<Semaphore>> = OnceLock::new();
 
 #[derive(Debug, Deserialize)]
@@ -39,6 +41,8 @@ struct CrawlRequest {
     urls: Option<Vec<String>>,
     #[serde(default)]
     max_text: Option<usize>,
+    #[serde(default)]
+    include_ai_context: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -51,8 +55,11 @@ struct CrawlResponse {
     language: Option<String>,
     content_type: Option<String>,
     text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     ai_context: Option<String>,
     word_count: usize,
+    character_count: usize,
+    source_html_bytes: usize,
     quality: u8,
     method: String,
     latency_ms: u128,
@@ -67,6 +74,7 @@ struct Stages {
     dns_ms: u128,
     fetch_ms: u128,
     redirect_ms: u128,
+    read_ms: u128,
     parse_ms: u128,
     extraction_ms: u128,
     audit_ms: u128,
@@ -113,6 +121,17 @@ struct FetchResult {
     dns_ms: u128,
 }
 
+#[derive(Debug, Default)]
+struct ExtractionStats {
+    emitted_blocks: usize,
+    emitted_words: usize,
+    skipped_noise_nodes: usize,
+    hidden_nodes: usize,
+    paragraphs: usize,
+    headings: usize,
+    links: usize,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     run(service_fn(handler)).await
@@ -126,7 +145,7 @@ async fn handler(req: Request) -> Result<Response<ResponseBody>, Error> {
             .header("access-control-allow-methods", "POST, OPTIONS")
             .header("access-control-allow-headers", "content-type")
             .header("cache-control", "no-store")
-            .body(ResponseBody::from(""))?);
+            .body(ResponseBody::empty())?);
     }
 
     if req.method() != http::Method::POST {
@@ -167,11 +186,12 @@ async fn handler(req: Request) -> Result<Response<ResponseBody>, Error> {
         }
     };
 
-    let mut urls = input.urls.unwrap_or_default();
+    let mut urls = Vec::new();
+    for entry in input.urls.unwrap_or_default() {
+        split_url_field(&entry, &mut urls);
+    }
     if let Some(u) = input.url {
-        if !u.trim().is_empty() {
-            urls.push(u);
-        }
+        split_url_field(&u, &mut urls);
     }
 
     let mut normalized = Vec::with_capacity(urls.len().min(MAX_URLS_PER_REQUEST));
@@ -203,15 +223,24 @@ async fn handler(req: Request) -> Result<Response<ResponseBody>, Error> {
         }));
     }
 
-    let max_text = input.max_text.unwrap_or(MAX_TEXT).min(MAX_TEXT).max(1000);
+    // max_text is now optional rather than a hidden default truncation. If a
+    // caller explicitly asks for a cap, honor it. Otherwise extraction is full.
+    let max_text = input.max_text;
+    let include_ai_context = input.include_ai_context;
     let requested = normalized.len();
 
-    // 2,000 is the scheduler ceiling, not a promise that Vercel will allocate
-    // 2,000 sockets. For this endpoint the request itself is limited to 40 URLs.
     let gate = GLOBAL_GATE
         .get_or_init(|| Arc::new(Semaphore::new(SCHEDULER_CEILING)))
         .clone();
 
+    eprintln!(
+        "{{\"event\":\"batch_start\",\"requested\":{},\"ceiling\":{},\"elapsed_ms\":{}}}",
+        requested,
+        SCHEDULER_CEILING,
+        started.elapsed().as_millis()
+    );
+
+    let concurrency = requested.min(SCHEDULER_CEILING).max(1);
     let results = stream::iter(normalized.into_iter().map(|u| {
         let gate = gate.clone();
         async move {
@@ -226,49 +255,88 @@ async fn handler(req: Request) -> Result<Response<ResponseBody>, Error> {
                     )
                 }
             };
-            crawl_one(&u, max_text).await
+            crawl_one(&u, max_text, include_ai_context).await
         }
     }))
-    .buffer_unordered(SCHEDULER_CEILING)
+    .buffer_unordered(concurrency)
     .collect::<Vec<_>>()
     .await;
 
     let succeeded = results.iter().filter(|r| r.ok).count();
     let failed = results.len().saturating_sub(succeeded);
 
-    json_response(200, &BatchResponse {
-        ok: failed == 0,
-        count: results.len(),
+    eprintln!(
+        "{{\"event\":\"batch_end\",\"requested\":{},\"succeeded\":{},\"failed\":{},\"latency_ms\":{}}}",
+        requested,
         succeeded,
         failed,
-        latency_ms: started.elapsed().as_millis(),
-        scheduler: SchedulerInfo {
-            requested,
-            max_urls_per_request: MAX_URLS_PER_REQUEST,
-            concurrency_ceiling: SCHEDULER_CEILING,
-            strategy: "bounded async fan-out; fail-safe per-page isolation",
+        started.elapsed().as_millis()
+    );
+
+    json_response(
+        200,
+        &BatchResponse {
+            ok: failed == 0,
+            count: results.len(),
+            succeeded,
+            failed,
+            latency_ms: started.elapsed().as_millis(),
+            scheduler: SchedulerInfo {
+                requested,
+                max_urls_per_request: MAX_URLS_PER_REQUEST,
+                concurrency_ceiling: SCHEDULER_CEILING,
+                strategy: "parallel async fan-out with per-page isolation",
+            },
+            results,
         },
-        results,
-    })
+    )
 }
 
-async fn crawl_one(raw: &str, max_text: usize) -> CrawlResponse {
+async fn crawl_one(raw: &str, max_text: Option<usize>, include_ai_context: bool) -> CrawlResponse {
     let started = Instant::now();
-    match crawl(raw, max_text).await {
+    match crawl(raw, max_text, include_ai_context).await {
         Ok(mut out) => {
             out.latency_ms = started.elapsed().as_millis();
+            eprintln!(
+                "{{\"event\":\"page_complete\",\"url\":{},\"ok\":true,\"latency_ms\":{},\"fetch_ms\":{},\"read_ms\":{},\"parse_ms\":{},\"extraction_ms\":{},\"quality\":{},\"characters\":{},\"words\":{},\"source_html_bytes\":{}}}",
+                serde_json::to_string(raw).unwrap_or_else(|_| "\"?\"".into()),
+                out.latency_ms,
+                out.stages.fetch_ms,
+                out.stages.read_ms,
+                out.stages.parse_ms,
+                out.stages.extraction_ms,
+                out.quality,
+                out.character_count,
+                out.word_count,
+                out.source_html_bytes
+            );
             out
         }
-        Err(e) => failed_response(
-            raw.to_string(),
-            "CRAWL_FAILED",
-            &safe_error(&e),
-            is_retryable_error(&e),
-        ),
+        Err(e) => {
+            let retryable = is_retryable_error(&e);
+            let message = safe_error(&e);
+            eprintln!(
+                "{{\"event\":\"page_complete\",\"url\":{},\"ok\":false,\"latency_ms\":{},\"error\":{}}}",
+                serde_json::to_string(raw).unwrap_or_else(|_| "\"?\"".into()),
+                started.elapsed().as_millis(),
+                serde_json::to_string(&message).unwrap_or_else(|_| "\"CRAWL_FAILED\"".into())
+            );
+            failed_response_with_latency(raw.to_string(), "CRAWL_FAILED", &message, retryable, started.elapsed().as_millis())
+        }
     }
 }
 
 fn failed_response(url: String, code: &str, message: &str, retryable: bool) -> CrawlResponse {
+    failed_response_with_latency(url, code, message, retryable, 0)
+}
+
+fn failed_response_with_latency(
+    url: String,
+    code: &str,
+    message: &str,
+    retryable: bool,
+    latency_ms: u128,
+) -> CrawlResponse {
     CrawlResponse {
         ok: false,
         url,
@@ -280,9 +348,11 @@ fn failed_response(url: String, code: &str, message: &str, retryable: bool) -> C
         text: None,
         ai_context: None,
         word_count: 0,
+        character_count: 0,
+        source_html_bytes: 0,
         quality: 0,
         method: "failed-safe".into(),
-        latency_ms: 0,
+        latency_ms,
         stages: Stages::default(),
         warnings: Vec::new(),
         error: Some(Failure {
@@ -309,7 +379,8 @@ fn json_response<T: Serialize>(
         .body(ResponseBody::from(bytes))?)
 }
 
-async fn crawl(raw: &str, max_text: usize) -> Result<CrawlResponse> {
+async fn crawl(raw: &str, max_text: Option<usize>, include_ai_context: bool) -> Result<CrawlResponse> {
+    let total = Instant::now();
     let mut stages = Stages::default();
     let mut warnings = Vec::new();
 
@@ -352,6 +423,8 @@ async fn crawl(raw: &str, max_text: usize) -> Result<CrawlResponse> {
         return Err(anyhow!("UPSTREAM_{}", status.as_u16()));
     }
 
+    // Keep text-like HTML/XHTML pages on the fast static path. A missing
+    // Content-Type is allowed because many public pages misconfigure it.
     let is_html = ctype.contains("text/html")
         || ctype.contains("application/xhtml+xml")
         || ctype.is_empty();
@@ -360,21 +433,23 @@ async fn crawl(raw: &str, max_text: usize) -> Result<CrawlResponse> {
     }
 
     let declared_len = fetched.response.content_length();
-    if declared_len.is_some_and(|n| n > MAX_BYTES as u64) {
+    if declared_len.is_some_and(|n| n > MAX_HTML_BYTES as u64) {
         return Err(anyhow!("RESPONSE_TOO_LARGE"));
     }
 
-    let mut stream = fetched.response.bytes_stream();
+    let read = Instant::now();
+    let mut body_stream = fetched.response.bytes_stream();
     let mut bytes = Vec::with_capacity(
-        declared_len.unwrap_or(0).min(MAX_BYTES as u64) as usize
+        declared_len.unwrap_or(0).min(MAX_HTML_BYTES as u64) as usize,
     );
-    while let Some(chunk) = stream.next().await {
+    while let Some(chunk) = body_stream.next().await {
         let chunk = chunk.context("BODY_READ_FAILED")?;
-        if bytes.len().saturating_add(chunk.len()) > MAX_BYTES {
+        if bytes.len().saturating_add(chunk.len()) > MAX_HTML_BYTES {
             return Err(anyhow!("RESPONSE_TOO_LARGE"));
         }
         bytes.extend_from_slice(&chunk);
     }
+    stages.read_ms = read.elapsed().as_millis();
 
     let parse = Instant::now();
     let html = String::from_utf8_lossy(&bytes).into_owned();
@@ -382,19 +457,36 @@ async fn crawl(raw: &str, max_text: usize) -> Result<CrawlResponse> {
     stages.parse_ms = parse.elapsed().as_millis();
 
     let extract = Instant::now();
-    let extracted = extract_content(&doc, max_text);
+    let (title, description, language, mut text, stats, extra_warnings) = extract_full_document(&doc);
     stages.extraction_ms = extract.elapsed().as_millis();
+    warnings.extend(extra_warnings);
 
-    let title = extracted.0;
-    let description = extracted.1;
-    let language = extracted.2;
-    let text = extracted.3;
-    let mut quality = extracted.4;
-    warnings.extend(extracted.5);
+    // A requested cap is explicit caller behavior, never an implicit crawler
+    // limit. The boundary is applied only here, after complete extraction.
+    if let Some(cap) = max_text {
+        let cap = cap.max(1000);
+        if text.len() > cap {
+            text = truncate_utf8_safely(&text, cap);
+            warnings.push("explicit_max_text_cap_applied".into());
+        }
+    }
+
+    // Fail-safe fallback: if our noise-aware walk unexpectedly finds very
+    // little useful text on a page whose body clearly contains lots of text,
+    // do one complete raw-visible-text walk instead of returning a half page.
+    let filtered_words = text.split_whitespace().count();
+    if filtered_words < 80 && stats.emitted_words > filtered_words.saturating_mul(3) {
+        let fallback = extract_raw_visible_document(&doc);
+        if fallback.len() > text.len() {
+            text = fallback;
+            warnings.push("noise_filter_fallback_to_full_visible_text".into());
+        }
+    }
 
     let audit = Instant::now();
     let words = text.split_whitespace().count();
     let lower = text.to_ascii_lowercase();
+    let mut quality = quality_score(words, &stats, text.len());
 
     if words < 30 {
         quality = quality.min(35);
@@ -412,26 +504,44 @@ async fn crawl(raw: &str, max_text: usize) -> Result<CrawlResponse> {
         warnings.push("possible_auth_wall".into());
         quality = quality.min(45);
     }
-
-    // Static HTML cannot execute JavaScript. If the page exposes useful
-    // noscript/SSR/JSON-LD text it is already visible to this extractor;
-    // otherwise we report the limitation instead of fabricating rendered text.
     if html_indicates_dynamic_shell(&doc, words) {
         warnings.push("dynamic_shell_detected_static_content_only".into());
     }
 
     stages.audit_ms = audit.elapsed().as_millis();
 
+    // Unlike the previous implementation, low quality does not destroy a
+    // complete extraction. The response carries the text plus warnings so the
+    // caller can decide whether the page was blocked/dynamic instead of losing
+    // the useful portion of the page.
     if quality < 40 {
-        return Err(anyhow!("LOW_CONFIDENCE_EXTRACTION"));
+        warnings.push("low_confidence_but_content_preserved".into());
     }
 
-    let ai_context = format!(
-        "SOURCE: {}\nTITLE: {}\nQUALITY: {}/100\n\n{}",
-        final_url,
-        title.as_deref().unwrap_or("Untitled"),
+    let ai_context = include_ai_context.then(|| {
+        format!(
+            "SOURCE: {}\nTITLE: {}\nQUALITY: {}/100\n\n{}",
+            final_url,
+            title.as_deref().unwrap_or("Untitled"),
+            quality,
+            text
+        )
+    });
+
+    let character_count = text.chars().count();
+    let total_ms = total.elapsed().as_millis();
+    eprintln!(
+        "{{\"event\":\"page_audit\",\"url\":{},\"total_ms\":{},\"characters\":{},\"words\":{},\"quality\":{},\"nodes_skipped\":{},\"hidden_nodes\":{},\"paragraphs\":{},\"headings\":{},\"links\":{}}}",
+        serde_json::to_string(&final_url).unwrap_or_else(|_| "\"?\"".into()),
+        total_ms,
+        character_count,
+        words,
         quality,
-        text
+        stats.skipped_noise_nodes,
+        stats.hidden_nodes,
+        stats.paragraphs,
+        stats.headings,
+        stats.links
     );
 
     Ok(CrawlResponse {
@@ -443,10 +553,12 @@ async fn crawl(raw: &str, max_text: usize) -> Result<CrawlResponse> {
         language,
         content_type: Some(ctype),
         text: Some(text),
-        ai_context: Some(ai_context),
+        ai_context,
         word_count: words,
+        character_count,
+        source_html_bytes: bytes.len(),
         quality,
-        method: "static-html-fast".into(),
+        method: "full-static-dom-fast".into(),
         latency_ms: 0,
         stages,
         warnings,
@@ -464,9 +576,6 @@ async fn fetch_with_safe_redirects(mut target: SafeTarget) -> Result<FetchResult
         if !visited.insert(target.url.to_string()) {
             return Err(anyhow!("REDIRECT_LOOP"));
         }
-        if visited.len() > MAX_REDIRECT_TARGETS {
-            return Err(anyhow!("REDIRECT_TARGET_LIMIT"));
-        }
 
         let dns = Instant::now();
         target = validate_target(target.url.as_str()).await?;
@@ -478,7 +587,7 @@ async fn fetch_with_safe_redirects(mut target: SafeTarget) -> Result<FetchResult
             .header(header::USER_AGENT, USER_AGENT)
             .header(
                 header::ACCEPT,
-                "text/html,application/xhtml+xml;q=0.95,text/plain;q=0.5,*/*;q=0.1",
+                "text/html,application/xhtml+xml;q=0.98,text/plain;q=0.6,*/*;q=0.1",
             )
             .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.8")
             .header(header::ACCEPT_ENCODING, "gzip, br, deflate, zstd")
@@ -620,15 +729,26 @@ fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
-fn extract_content(
+fn split_url_field(value: &str, out: &mut Vec<String>) {
+    // The UI/API accepts URLs separated by spaces, commas, or newlines.
+    // Public HTTP URLs cannot contain raw spaces, so this is unambiguous for
+    // the intended input format.
+    for token in value.split(|c: char| c == ',' || c == '\n' || c == '\r' || c.is_whitespace()) {
+        let token = token.trim();
+        if !token.is_empty() {
+            out.push(token.to_string());
+        }
+    }
+}
+
+fn extract_full_document(
     doc: &Html,
-    max_text: usize,
 ) -> (
     Option<String>,
     Option<String>,
     Option<String>,
     String,
-    u8,
+    ExtractionStats,
     Vec<String>,
 ) {
     let mut warnings = Vec::new();
@@ -638,7 +758,7 @@ fn extract_content(
         .ok()
         .and_then(|s| doc.select(&s).next())
         .and_then(|n| n.value().attr("content"))
-        .map(|s| clean(s.to_string()))
+        .map(clean)
         .filter(|x| !x.is_empty());
 
     let language = Selector::parse("html")
@@ -647,69 +767,223 @@ fn extract_content(
         .and_then(|n| n.value().attr("lang"))
         .map(str::to_string);
 
-    // Candidate scoring is deliberately multi-pass: strong semantic regions
-    // first, then useful descendants, while noisy regions are excluded early.
-    let selectors = [
-        ("article", 42),
-        ("main", 38),
-        ("[role='main']", 36),
-        ("[itemprop='articleBody']", 45),
-        (".article-body", 44),
-        (".article-content", 42),
-        (".post-content", 40),
-        (".entry-content", 40),
-        ("section", 10),
-        ("body", -8),
+    let root = Selector::parse("body")
+        .ok()
+        .and_then(|s| doc.select(&s).next())
+        .or_else(|| doc.root_element());
+
+    let mut out = String::new();
+    let mut stats = ExtractionStats::default();
+
+    if let Some(root) = root {
+        walk_complete(root, &mut out, &mut stats);
+    }
+
+    let text = normalize_document_text(&out);
+    if text.is_empty() {
+        warnings.push("no_visible_text_found".into());
+    }
+    if stats.skipped_noise_nodes > 0 {
+        warnings.push(format!(
+            "filtered_{}_obvious_noise_nodes",
+            stats.skipped_noise_nodes
+        ));
+    }
+    if stats.hidden_nodes > 0 {
+        warnings.push(format!(
+            "ignored_{}_hidden_or_aria_hidden_nodes",
+            stats.hidden_nodes
+        ));
+    }
+
+    (title, description, language, text, stats, warnings)
+}
+
+fn walk_complete(node: ElementRef<'_>, out: &mut String, stats: &mut ExtractionStats) {
+    let value = node.value();
+    let tag = value.name();
+
+    if should_skip_entire_node(&node) {
+        stats.skipped_noise_nodes = stats.skipped_noise_nodes.saturating_add(1);
+        return;
+    }
+    if is_hidden_element(&node) {
+        stats.hidden_nodes = stats.hidden_nodes.saturating_add(1);
+        return;
+    }
+
+    let is_block = is_block_tag(tag);
+    if is_block && !out.is_empty() {
+        out.push_str("\n\n");
+    }
+
+    match tag {
+        "p" => stats.paragraphs = stats.paragraphs.saturating_add(1),
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            stats.headings = stats.headings.saturating_add(1)
+        }
+        "a" => stats.links = stats.links.saturating_add(1),
+        _ => {}
+    }
+
+    let mut had_text = false;
+    for child in node.children() {
+        if let Some(el) = ElementRef::wrap(child) {
+            walk_complete(el, out, stats);
+        } else if let Some(text) = child.value().as_text() {
+            let t = text.trim();
+            if !t.is_empty() {
+                if !out.is_empty() && !ends_with_separator(out) {
+                    out.push(' ');
+                }
+                out.push_str(t);
+                stats.emitted_words = stats
+                    .emitted_words
+                    .saturating_add(t.split_whitespace().count());
+                had_text = true;
+            }
+        }
+    }
+
+    if is_block && (had_text || ends_with_non_separator(out)) {
+        out.push_str("\n\n");
+        stats.emitted_blocks = stats.emitted_blocks.saturating_add(1);
+    }
+}
+
+fn extract_raw_visible_document(doc: &Html) -> String {
+    let root = Selector::parse("body")
+        .ok()
+        .and_then(|s| doc.select(&s).next())
+        .or_else(|| doc.root_element());
+    let Some(root) = root else {
+        return String::new();
+    };
+
+    let mut out = String::new();
+    walk_raw(root, &mut out);
+    normalize_document_text(&out)
+}
+
+fn walk_raw(node: ElementRef<'_>, out: &mut String) {
+    let tag = node.value().name();
+    if matches!(tag, "script" | "style" | "template" | "svg" | "canvas" | "iframe" | "object" | "embed" | "form") {
+        return;
+    }
+    if is_hidden_element(&node) {
+        return;
+    }
+
+    if is_block_tag(tag) && !out.is_empty() {
+        out.push_str("\n\n");
+    }
+
+    for child in node.children() {
+        if let Some(el) = ElementRef::wrap(child) {
+            walk_raw(el, out);
+        } else if let Some(text) = child.value().as_text() {
+            let t = text.trim();
+            if !t.is_empty() {
+                if !out.is_empty() && !ends_with_separator(out) {
+                    out.push(' ');
+                }
+                out.push_str(t);
+            }
+        }
+    }
+}
+
+fn should_skip_entire_node(node: &ElementRef<'_>) -> bool {
+    let tag = node.value().name();
+    if matches!(tag, "script" | "style" | "template" | "svg" | "canvas" | "iframe" | "object" | "embed" | "form" | "nav" | "footer") {
+        return true;
+    }
+
+    let attrs = format!(
+        "{} {}",
+        node.value().id().unwrap_or(""),
+        node.value().attr("class").unwrap_or("")
+    )
+    .to_ascii_lowercase();
+
+    const STRONG_NOISE: [&str; 18] = [
+        "cookie-banner",
+        "cookie-consent",
+        "consent-banner",
+        "consent-manager",
+        "advertisement",
+        "ad-container",
+        "ad-slot",
+        "adsbygoogle",
+        "sponsored-content",
+        "newsletter-signup",
+        "newsletter-form",
+        "social-share",
+        "share-tools",
+        "breadcrumb",
+        "login-modal",
+        "signup-modal",
+        "paywall",
+        "modal-overlay",
     ];
 
-    let mut best = String::new();
-    let mut best_score = i64::MIN;
+    STRONG_NOISE.iter().any(|marker| attrs.contains(marker))
+}
 
-    for (selector_text, bonus) in selectors {
-        let Ok(selector) = Selector::parse(selector_text) else {
-            continue;
-        };
-
-        for node in doc.select(&selector).take(MAX_CANDIDATES) {
-            let text = visible_text(node, MAX_CHILDREN_SCAN);
-            let normalized = clean(text);
-            if normalized.len() < 80 {
-                continue;
-            }
-            let score = content_score(node, &normalized, bonus);
-            if score > best_score {
-                best_score = score;
-                best = normalized;
-            }
-        }
+fn is_hidden_element(node: &ElementRef<'_>) -> bool {
+    let v = node.value();
+    if v.attr("aria-hidden") == Some("true") {
+        return true;
     }
+    let style = v.attr("style").unwrap_or("").to_ascii_lowercase();
+    style.contains("display:none")
+        || style.contains("display: none")
+        || style.contains("visibility:hidden")
+        || style.contains("visibility: hidden")
+        || style.contains("content-visibility:hidden")
+        || style.contains("content-visibility: hidden")
+}
 
-    if best.is_empty() {
-        warnings.push("no_strong_content_region".into());
-        if let Some(root) = doc.root_element().value().name().is_empty().then_some(()) {
-            let _ = root;
-        }
-        if let Some(body) = Selector::parse("body")
-            .ok()
-            .and_then(|s| doc.select(&s).next())
-        {
-            best = clean(visible_text(body, MAX_CHILDREN_SCAN));
-        }
-    }
-
-    // Preserve the existing output cap so batch responses remain bounded.
-    let text = normalize_and_cap(&best, max_text);
-    let words = text.split_whitespace().count() as i64;
-    let length_score = (words.min(5000) / 25) as i64;
-    let raw = best_score.max(0);
-    let quality = ((raw + length_score).clamp(0, 100)) as u8;
-
-    if text.len() >= max_text {
-        warnings.push("text_cap_reached".into());
-    }
-
-    let quality = quality.max(if text.len() > 500 { 70 } else { 30 });
-    (title, description, language, text, quality, warnings)
+fn is_block_tag(tag: &str) -> bool {
+    matches!(
+        tag,
+        "address"
+            | "article"
+            | "aside"
+            | "blockquote"
+            | "caption"
+            | "dd"
+            | "div"
+            | "dl"
+            | "dt"
+            | "fieldset"
+            | "figcaption"
+            | "figure"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "header"
+            | "hr"
+            | "li"
+            | "main"
+            | "ol"
+            | "p"
+            | "pre"
+            | "section"
+            | "table"
+            | "tbody"
+            | "td"
+            | "tfoot"
+            | "th"
+            | "thead"
+            | "tr"
+            | "ul"
+            | "details"
+            | "summary"
+    )
 }
 
 fn select_first_text(doc: &Html, selector_text: &str) -> Option<String> {
@@ -720,142 +994,22 @@ fn select_first_text(doc: &Html, selector_text: &str) -> Option<String> {
         .filter(|x| !x.is_empty())
 }
 
-fn visible_text(node: ElementRef<'_>, budget: usize) -> String {
-    fn walk(node: ElementRef<'_>, out: &mut String, seen: &mut usize) {
-        if *seen >= MAX_CHILDREN_SCAN {
-            return;
-        }
-
-        let tag = node.value().name();
-        if is_noise_tag(tag) || has_noise_class_or_id(&node) {
-            return;
-        }
-
-        *seen += 1;
-
-        for child in node.children() {
-            if *seen >= MAX_CHILDREN_SCAN {
-                break;
-            }
-
-            if let Some(el) = ElementRef::wrap(child) {
-                walk(el, out, seen);
-            } else if let Some(text) = child.value().as_text() {
-                out.push(' ');
-                out.push_str(text);
-            }
-        }
+fn quality_score(words: usize, stats: &ExtractionStats, chars: usize) -> u8 {
+    if words == 0 {
+        return 0;
     }
 
-    let mut out = String::with_capacity(budget.min(128 * 1024));
-    let mut seen = 0usize;
-    walk(node, &mut out, &mut seen);
-    if out.len() > budget {
-        out.truncate(budget);
+    let mut score = 45i64;
+    score += (words.min(12000) / 120) as i64;
+    score += (stats.paragraphs.min(80) / 4) as i64;
+    score += stats.headings.min(12) as i64 * 2;
+    if chars > 1000 {
+        score += 10;
     }
-    out
-}
-
-fn is_noise_tag(tag: &str) -> bool {
-    matches!(
-        tag,
-        "script"
-            | "style"
-            | "noscript"
-            | "template"
-            | "svg"
-            | "canvas"
-            | "iframe"
-            | "object"
-            | "embed"
-            | "form"
-            | "nav"
-            | "footer"
-    )
-}
-
-fn has_noise_class_or_id(node: &ElementRef<'_>) -> bool {
-    let v = node.value();
-    let attrs = format!(
-        "{} {}",
-        v.id().unwrap_or(""),
-        v.attr("class").unwrap_or("")
-    )
-    .to_ascii_lowercase();
-
-    const BAD: [&str; 15] = [
-        "cookie",
-        "consent",
-        "advert",
-        "ads-",
-        "sponsor",
-        "newsletter",
-        "social",
-        "sidebar",
-        "breadcrumb",
-        "share",
-        "popup",
-        "modal",
-        "login",
-        "signup",
-        "paywall",
-    ];
-
-    BAD.iter().any(|x| attrs.contains(x))
-}
-
-fn content_score(node: ElementRef<'_>, text: &str, bonus: i32) -> i64 {
-    let value = node.value();
-    let attrs = format!(
-        "{} {}",
-        value.id().unwrap_or(""),
-        value.attr("class").unwrap_or("")
-    )
-    .to_ascii_lowercase();
-
-    let words = text.split_whitespace().count() as i64;
-    let links = Selector::parse("a")
-        .ok()
-        .map(|s| node.select(&s).count() as i64)
-        .unwrap_or(0);
-    let paragraphs = Selector::parse("p")
-        .ok()
-        .map(|s| node.select(&s).count() as i64)
-        .unwrap_or(0);
-    let headings = Selector::parse("h1,h2,h3,h4")
-        .ok()
-        .map(|s| node.select(&s).count() as i64)
-        .unwrap_or(0);
-
-    let bad = [
-        "nav",
-        "menu",
-        "footer",
-        "sidebar",
-        "cookie",
-        "consent",
-        "advert",
-        "sponsor",
-        "newsletter",
-        "social",
-        "login",
-        "signup",
-        "breadcrumb",
-        "share",
-    ];
-    let penalty = bad.iter().filter(|x| attrs.contains(**x)).count() as i64 * 20;
-    let link_penalty = if words > 0 {
-        ((links * 100) / words).min(55)
-    } else {
-        55
-    };
-
-    (words.min(12000) / 20)
-        + paragraphs.min(100) * 3
-        + headings.min(20) * 4
-        + bonus as i64
-        - penalty
-        - link_penalty
+    if chars > 10000 {
+        score += 10;
+    }
+    score.clamp(0, 100) as u8
 }
 
 fn html_indicates_dynamic_shell(doc: &Html, words: usize) -> bool {
@@ -878,31 +1032,67 @@ fn html_indicates_dynamic_shell(doc: &Html, words: usize) -> bool {
     })
 }
 
-fn normalize_and_cap(s: &str, max: usize) -> String {
-    let mut out = String::with_capacity(s.len().min(max));
-    let mut last_space = false;
+fn normalize_document_text(s: &str) -> String {
+    // Keep paragraph/block boundaries produced by the DOM walk while
+    // collapsing incidental HTML whitespace. No character/word ceiling is
+    // applied here.
+    let mut out = String::with_capacity(s.len());
+    let mut pending_space = false;
+    let mut pending_breaks = 0usize;
 
     for ch in s.chars() {
-        if ch.is_whitespace() {
-            if !last_space {
-                out.push(' ');
-                last_space = true;
-            }
-        } else {
-            out.push(ch);
-            last_space = false;
+        if ch == '\n' || ch == '\r' {
+            pending_breaks = (pending_breaks + 1).min(2);
+            pending_space = false;
+            continue;
         }
 
-        if out.len() >= max {
-            break;
+        if ch.is_whitespace() {
+            pending_space = true;
+            continue;
         }
+
+        if pending_breaks > 0 {
+            while out.ends_with(' ') {
+                out.pop();
+            }
+            if !out.is_empty() {
+                out.push_str("\n\n");
+            }
+            pending_breaks = 0;
+            pending_space = false;
+        } else if pending_space && !out.is_empty() && !out.ends_with(' ') && !out.ends_with('\n') {
+            out.push(' ');
+            pending_space = false;
+        }
+
+        out.push(ch);
     }
 
     out.trim().to_string()
 }
 
+fn ends_with_separator(s: &str) -> bool {
+    s.as_bytes().last().is_some_and(|b| *b == b' ' || *b == b'\n' || *b == b'\r' || *b == b'\t')
+}
+
+fn ends_with_non_separator(s: &str) -> bool {
+    !s.is_empty() && !ends_with_separator(s)
+}
+
+fn truncate_utf8_safely(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
+        return s.to_string();
+    }
+    let mut end = max_bytes;
+    while end > 0 && !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    s[..end].to_string()
+}
+
 fn clean(s: String) -> String {
-    normalize_and_cap(&s, MAX_TEXT)
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn is_retryable_error(e: &anyhow::Error) -> bool {
