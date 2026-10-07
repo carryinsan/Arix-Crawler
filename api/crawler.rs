@@ -650,7 +650,7 @@ fn build_client_for(target: &SafeTarget) -> Result<Client> {
 }
 
 async fn validate_target(raw: &str) -> Result<SafeTarget> {
-    let u Url::parse(raw).context("INVALID_URL")?;
+    let u = Url::parse(raw).context("INVALID_URL")?;
     if u.scheme() != "http" && u.scheme() != "https" {
         return Err(anyhow!("UNSUPPORTED_SCHEME"));
     }
