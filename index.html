@@ -80,11 +80,28 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
 </header>
 
 <section class="card">
+<div style="display: flex; gap: 8px; margin-bottom: 14px;">
+  <button id="tabQuery" type="button" class="btn" style="padding: 7px 16px; font-size: 12px;">Query Search</button>
+  <button id="tabCustom" type="button" class="btn btn-ghost" style="padding: 7px 16px; font-size: 12px;">Custom URLs (Up to 40)</button>
+</div>
+
+<!-- Mode 1: Search Query -->
+<div id="queryBox">
   <div class="eyebrow">ENTER SEARCH QUERY</div>
   <div class="searchbox">
     <input id="query" class="input" placeholder="e.g. todays news india or transformer architecture in deep learning" autocomplete="off" autofocus>
     <button id="searchBtn" class="btn">Search & Crawl Full Pages</button>
   </div>
+</div>
+
+<!-- Mode 2: Custom URL Direct Paste -->
+<div id="customBox" class="hidden">
+  <div class="eyebrow">PASTE DIRECT URLS (SEPARATED BY COMMA, SPACE, OR NEWLINE - MAX 40)</div>
+  <div style="margin-top: 14px; display: flex; flex-direction: column; gap: 10px;">
+    <textarea id="customUrls" class="input" rows="4" style="resize: vertical; font-family: monospace; font-size: 13px;" placeholder="https://www.quora.com/topic-example&#10;https://www.justdial.com/page-example, https://example.com/another"></textarea>
+    <button id="crawlCustomBtn" class="btn" style="align-self: flex-start;">Crawl Custom Sites Directly</button>
+  </div>
+</div>
 
   <div class="controls">
     <div class="control-item">
@@ -248,7 +265,122 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     let searchLatency = 0;
     let rawResults = [];
 
-    // STAGE 1: Fast Discovery from Search Engine
+    // DIRECT CUSTOM URL CRAWLER (SKIPS SEARCH ENGINE DISCOVERY)
+async function executeCustomCrawl() {
+    const raw = $('customUrls').value.trim();
+    if (!raw) {
+        alert('Please paste at least one URL.');
+        $('customUrls').focus();
+        return;
+    }
+
+    // Split by comma, newline, carriage return, or whitespace
+    const tokens = raw.split(/[\s,]+/).map(t => t.trim()).filter(Boolean);
+    const seen = new Set();
+    const urls = [];
+
+    for (let u of tokens) {
+        if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+        if (!seen.has(u)) {
+            seen.add(u);
+            urls.push(u);
+        }
+        if (urls.length >= 40) break;
+    }
+
+    if (!urls.length) {
+        alert('No valid URLs found.');
+        return;
+    }
+
+    resetUi();
+    setStatus(`CRAWLING ${urls.length} DIRECT URLS...`, true);
+    $('progressBar').style.width = '35\%';$('tSearch').textContent = '0 ms (Direct)';
+
+    const extractorEndpoint = '/api/crawler';
+    const pipeStart = performance.now();
+    const extractStart = performance.now();
+    let extractData = null;
+
+    try {
+        const res = await fetch(extractorEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls })
+        });
+        if (!res.ok) throw new Error(`Crawler returned HTTP ${res.status}`);
+        extractData = await res.json();
+    } catch (err) {
+        setStatus('EXTRACTION FAILED', false, true);
+        alert(`Full-Page Extractor Error: ${err.message}`);
+        return;
+    }
+
+    const extractionLatency = Math.round(performance.now() - extractStart);
+    const totalLatency = Math.round(performance.now() - pipeStart);
+    $('tExtract').textContent = ms(extractionLatency);$('tTotal').textContent = ms(totalLatency);
+
+    const successfulPages = [];
+    let failedCount = 0;
+    const results = extractData.results || [];
+
+    results.forEach((ext, idx) => {
+        if (ext && ext.ok && ext.text && ext.text.length >= 25) {
+            successfulPages.push({
+                rank: successfulPages.length + 1,
+                title: ext.title || 'Untitled Web Page',
+                url: ext.final_url || ext.url,
+                domain: new URL(ext.final_url || ext.url).hostname.replace(/^www\./, ''),
+                matchBand: 'Direct Crawl',
+                matchScore: 100,
+                type: 'web',
+                content: ext.text,
+                wordCount: ext.word_count || ext.text.split(/\s+/).filter(Boolean).length,
+                characterCount: ext.character_count || ext.text.length,
+                quality: ext.quality || 100,
+                httpStatus: 200,
+                stages: ext.stages || {},
+                trace: {
+                    source: 'custom-paste',
+                    verified: true,
+                    method: ext.method || 'full-static-dom-fast',
+                    stages: ext.stages,
+                    warnings: ext.warnings
+                }
+            });
+        } else {
+            failedCount++;
+        }
+    });
+
+    $('tok').textContent = successfulPages.length;
+    $('tFailed').textContent = failedCount;
+    $('tDiscarded').textContent = '0';$('tQuality').textContent = successfulPages.length ? '100%' : '-';
+
+    currentExportPayload = {
+        ok: true,
+        mode: 'custom_urls',
+        timestamp: new Date().toISOString(),
+        telemetry: {
+            searchLatencyMs: 0,
+            extractionLatencyMs: extractionLatency,
+            totalLatencyMs: totalLatency,
+            discoveredUrls: urls.length,
+            candidateUrls: urls.length,
+            successfulPagesCount: successfulPages.length,
+            failedOrBlockedCount: failedCount,
+            discardedNoiseCount: 0
+        },
+        results: successfulPages
+    };
+
+    $('rawJsonContent').textContent = JSON.stringify(currentExportPayload, null, 2);
+    renderSuccessfulCards(successfulPages);
+    $('progressBar').style.width = '100%';
+    setStatus(successfulPages.length ? 'COMPLETE' : 'NO USABLE PAGES');
+}
+
+// STAGE 1: Fast Discovery from Search Engine
     try {
       const searchUrl = `${searchEndpoint}?query=${encodeURIComponent(query)}&count=${count}&mode=${mode}&type=${type}&verify=true`;
       const searchStart = performance.now();
@@ -415,7 +547,7 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     }
 
     pages.forEach((p, idx) => {
-      const pillClass = p.matchBand === 'Strong match' ? 'pill-strong' : (p.matchBand === 'Likely relevant' ? 'pill-likely' : 'pill-partial');
+      const pillClass = (p.matchBand === 'Strong match' || p.matchBand === 'Direct Crawl') ? 'pill-strong' : (p.matchBand === 'Likely relevant' ? 'pill-likely' : 'pill-partial');
       const article = document.createElement('article');
       article.className = 'result';
       article.innerHTML = `
@@ -466,8 +598,25 @@ pre{white-space:pre-wrap;font-size:11px;background:#06080d;border:1px solid #1a2
     $('resultsSection').classList.remove('hidden');
   }
 
-  // Event Listeners
-  $('searchBtn').addEventListener('click', executePipeline);$('query').addEventListener('keydown', e => { if (e.key === 'Enter') executePipeline(); });
+  // Tab Switching
+$('tabQuery').addEventListener('click', () => {
+    $('queryBox').classList.remove('hidden');
+    $('customBox').classList.add('hidden');
+    $('tabQuery').className = 'btn';
+    $('tabCustom').className = 'btn btn-ghost';
+});
+
+$('tabCustom').addEventListener('click', () => {
+    $('queryBox').classList.add('hidden');
+    $('customBox').classList.remove('hidden');
+    $('tabCustom').className = 'btn';
+    $('tabQuery').className = 'btn btn-ghost';
+});
+
+// Event Listeners
+$('searchBtn').addEventListener('click', executePipeline);
+$('query').addEventListener('keydown', e => { if (e.key === 'Enter') executePipeline(); });
+$('crawlCustomBtn').addEventListener('click', executeCustomCrawl);
 
   $('copyJsonBtn').addEventListener('click', () => {
     if (!currentExportPayload) return;
