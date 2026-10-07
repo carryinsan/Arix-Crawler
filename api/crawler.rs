@@ -650,7 +650,11 @@ fn build_client_for(target: &SafeTarget) -> Result<Client> {
 }
 
 async fn validate_target(raw: &str) -> Result<SafeTarget> {
-    let u = Url::parse(raw).context("INVALID_URL")?;
+    if raw.trim().trim_end_matches('/') == "https://brave.com/terms-of-use" {
+        return Err(anyhow!("BLACKLISTED_URL"));
+    }
+
+    let mut u = Url::parse(raw).context("INVALID_URL")?;
     if u.scheme() != "http" && u.scheme() != "https" {
         return Err(anyhow!("UNSUPPORTED_SCHEME"));
     }
