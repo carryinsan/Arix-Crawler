@@ -26,7 +26,11 @@ const MAX_URLS_PER_REQUEST: usize = 100;
 const SCHEDULER_CEILING: usize = 2000;
 const FETCH_TIMEOUT_SECS: u64 = 14;
 const CONNECT_TIMEOUT_SECS: u64 = 4;
-const USER_AGENT: &str = "ArixAI-WebIntelligence/3.0-Full";
+// Modern Chrome on Windows 11 footprint
+const USER_AGENT_BROWSER: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+// Social preview bots: Cloudflare and DataDome whitelist these on CDN edges without JS challenges
+const USER_AGENT_FALLBACK: &str = "facebookexternalhit/1.1 (+http://www.facebook.com/externalhit_uatext.php)";
 
 // Per-process gate. The HTTP request itself is still capped at 40 URLs, but
 // the scheduler can safely accommodate many callers without a hard-coded
@@ -582,19 +586,42 @@ async fn fetch_with_safe_redirects(mut target: SafeTarget) -> Result<FetchResult
         dns_ms += dns.elapsed().as_millis();
 
         let client = build_client_for(&target)?;
-        let request = client
-            .get(target.url.clone())
-            .header(header::USER_AGENT, USER_AGENT)
-            .header(
-                header::ACCEPT,
-                "text/html,application/xhtml+xml;q=0.98,text/plain;q=0.6,*/*;q=0.1",
-            )
-            .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.8")
-            .header(header::ACCEPT_ENCODING, "gzip, br, deflate, zstd")
-            .header("cache-control", "no-cache");
+        let host_header = target.url.host_str().unwrap_or("").to_string();
+
+        let send_req = |ua: &'static str| {
+            client
+                .get(target.url.clone())
+                .header(header::HOST, &host_header)
+                .header(header::USER_AGENT, ua)
+                .header(
+                    header::ACCEPT,
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+                )
+                .header(header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+                .header(header::ACCEPT_ENCODING, "gzip, deflate, br, zstd")
+                .header("sec-ch-ua", "\"Google Chrome\";v=\"131\", \"Chromium\";v=\"131\", \"Not_A Brand\";v=\"24\"")
+                .header("sec-ch-ua-mobile", "?0")
+                .header("sec-ch-ua-platform", "\"Windows\"")
+                .header("sec-fetch-dest", "document")
+                .header("sec-fetch-mode", "navigate")
+                .header("sec-fetch-site", "none")
+                .header("sec-fetch-user", "?1")
+                .header("upgrade-insecure-requests", "1")
+                .header("priority", "u=0, i")
+        };
 
         let redirect_timer = Instant::now();
-        let response = request.send().await.context("FETCH_FAILED")?;
+        let mut response = send_req(USER_AGENT_BROWSER).send().await.context("FETCH_FAILED")?;
+
+        // Zero-latency fallback: if blocked by 403 Forbidden or 429 Rate Limited,
+        // retry immediately with a social-bot identity that passes CDN edge caches.
+        if response.status() == StatusCode::FORBIDDEN || response.status() == StatusCode::TOO_MANY_REQUESTS {
+            if let Ok(fallback_resp) = send_req(USER_AGENT_FALLBACK).send().await {
+                if fallback_resp.status().is_success() {
+                    response = fallback_resp;
+                }
+            }
+        }
         redirect_ms += redirect_timer.elapsed().as_millis();
 
         if !response.status().is_redirection() {
@@ -638,7 +665,7 @@ fn build_client_for(target: &SafeTarget) -> Result<Client> {
         .brotli(true)
         .deflate(true)
         .zstd(true)
-        .user_agent(USER_AGENT)
+        .user_agent(USER_AGENT_BROWSER)
         .resolve(
             target.url.host_str().ok_or_else(|| anyhow!("MISSING_HOST"))?,
             SocketAddr::new(
@@ -650,7 +677,16 @@ fn build_client_for(target: &SafeTarget) -> Result<Client> {
 }
 
 async fn validate_target(raw: &str) -> Result<SafeTarget> {
-    let u = Url::parse(raw).context("INVALID_URL")?;
+    let mut u = Url::parse(raw).context("INVALID_URL")?;
+    
+    // Quora anti-wall bypass: 'share=1' bypasses login walls and CDN challenge pages
+    if let Some(host) = u.host_str() {
+        if host.contains("quora.com") && !u.query().unwrap_or("").contains("share=1") {
+            let mut pairs = u.query_pairs().into_owned().collect::<Vec<(String, String)>>();
+            pairs.push(("share".to_string(), "1".to_string()));
+            u.query_pairs_mut().clear().extend_pairs(pairs);
+        }
+    }
     if u.scheme() != "http" && u.scheme() != "https" {
         return Err(anyhow!("UNSUPPORTED_SCHEME"));
     }
